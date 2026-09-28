@@ -3,20 +3,33 @@
 namespace App\Services\Integrations;
 
 use App\Models\Issue;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class GithubIssueMediaCache
 {
+    public function referencesRemoteMedia(?string $html): bool
+    {
+        if ($html === null || $html === '') {
+            return false;
+        }
+
+        return str_contains($html, 'github.com/user-attachments/assets/')
+            || str_contains($html, 'private-user-images.githubusercontent.com');
+    }
+
     public function cacheAndRewrite(Issue $issue, string $html, ?string $markdownBody = null): string
     {
+        $issue->loadMissing('team', 'connection');
         $markdownUuids = $this->extractMarkdownAssetUuids($markdownBody);
         $markdownIndex = 0;
+        $token = $issue->connection?->token;
 
         return (string) preg_replace_callback(
             '#<img([^>]*)\ssrc=(["\'])([^"\']+)\2([^>]*)>#i',
-            function (array $matches) use ($issue, $markdownUuids, &$markdownIndex): string {
+            function (array $matches) use ($issue, $markdownUuids, &$markdownIndex, $token): string {
                 $src = html_entity_decode($matches[3], ENT_QUOTES | ENT_HTML5);
                 $uuid = $this->resolveAssetUuid($src, $markdownUuids, $markdownIndex);
 
@@ -24,11 +37,12 @@ class GithubIssueMediaCache
                     return $matches[0];
                 }
 
-                if (! $this->downloadAndStore($issue, $uuid, $src)) {
+                if (! $this->downloadAndStore($issue, $uuid, $src, $token)) {
                     return $matches[0];
                 }
 
                 $localUrl = route('issues.media', [
+                    'current_team' => $issue->team->slug,
                     'issue' => $issue,
                     'asset' => $uuid,
                 ]);
@@ -102,20 +116,30 @@ class GithubIssueMediaCache
         return strtolower($markdownUuids[$markdownIndex++]);
     }
 
-    protected function downloadAndStore(Issue $issue, string $uuid, string $src): bool
+    protected function downloadAndStore(Issue $issue, string $uuid, string $src, ?string $token): bool
     {
         $existing = $this->storedMediaPath($issue, $uuid);
 
-        if ($existing !== null) {
+        if ($existing !== null && $this->storedMediaMimeType($existing) !== 'application/octet-stream') {
             return true;
         }
 
-        try {
-            $response = Http::timeout(15)
-                ->connectTimeout(3)
-                ->get($src);
+        if ($existing !== null) {
+            Storage::disk('local')->delete($existing);
+        }
 
-            if (! $response->successful()) {
+        try {
+            $request = Http::timeout(15)
+                ->connectTimeout(3)
+                ->accept('*/*');
+
+            if ($this->downloadRequiresToken($src) && is_string($token) && $token !== '') {
+                $request = $request->withToken($token);
+            }
+
+            $response = $request->get($src);
+
+            if (! $response->successful() || ! $this->isImageResponse($response)) {
                 return false;
             }
 
@@ -130,6 +154,18 @@ class GithubIssueMediaCache
         }
     }
 
+    protected function downloadRequiresToken(string $src): bool
+    {
+        $host = parse_url($src, PHP_URL_HOST);
+
+        return $host === 'github.com' || $host === 'www.github.com';
+    }
+
+    protected function isImageResponse(Response $response): bool
+    {
+        return str_starts_with($this->normalizedContentType($response->header('Content-Type')), 'image/');
+    }
+
     protected function extensionFromResponse(?string $contentType, string $src): string
     {
         $extension = strtolower(pathinfo(parse_url($src, PHP_URL_PATH) ?? '', PATHINFO_EXTENSION));
@@ -138,7 +174,7 @@ class GithubIssueMediaCache
             return $extension === 'jpeg' ? 'jpg' : $extension;
         }
 
-        return match ($contentType) {
+        return match ($this->normalizedContentType($contentType)) {
             'image/png' => 'png',
             'image/jpeg', 'image/jpg' => 'jpg',
             'image/gif' => 'gif',
@@ -146,5 +182,12 @@ class GithubIssueMediaCache
             'image/svg+xml' => 'svg',
             default => 'bin',
         };
+    }
+
+    protected function normalizedContentType(?string $contentType): string
+    {
+        $type = strtolower(trim(explode(';', (string) $contentType)[0]));
+
+        return $type;
     }
 }

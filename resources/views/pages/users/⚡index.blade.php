@@ -218,7 +218,18 @@ new #[Layout('layouts::app')] #[Title('Users')] class extends Component {
                         <p class="text-sm text-gray-500 dark:text-dark-300">{{ $member->email }}</p>
                     </div>
 
-                    <x-badge light color="gray" :text="$member->pivot->role->label()" />
+                    <div class="flex items-center gap-2">
+                        @if (can_impersonate() && can_be_impersonated($member))
+                            <x-button
+                                outline
+                                sm
+                                :href="route('impersonate', $member)"
+                                data-test="view-as-user"
+                                :text="__('View as')"
+                            />
+                        @endif
+                        <x-badge light color="gray" :text="$member->pivot->role->label()" />
+                    </div>
                 </div>
             </x-card>
         @empty

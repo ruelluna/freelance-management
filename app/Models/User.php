@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Concerns\HasTeams;
+use App\Enums\TeamPermission;
 use App\Enums\TeamRole;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -16,6 +17,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
+use Lab404\Impersonate\Models\Impersonate;
 use Laravel\Fortify\Contracts\PasskeyUser;
 use Laravel\Fortify\PasskeyAuthenticatable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
@@ -48,7 +50,7 @@ use Spatie\Permission\Traits\HasRoles;
 class User extends Authenticatable implements PasskeyUser
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, HasRoles, HasTeams, Notifiable, PasskeyAuthenticatable, TwoFactorAuthenticatable {
+    use HasFactory, HasRoles, HasTeams, Impersonate, Notifiable, PasskeyAuthenticatable, TwoFactorAuthenticatable {
         HasTeams::teams insteadof HasRoles;
     }
 
@@ -110,6 +112,31 @@ class User extends Authenticatable implements PasskeyUser
         $role = $this->teamRole($team);
 
         return $role?->isClient() || $role === TeamRole::Member;
+    }
+
+    public function canImpersonate(): bool
+    {
+        $team = $this->currentTeam;
+
+        return $team !== null
+            && $this->hasTeamPermission($team, TeamPermission::ManageUsers);
+    }
+
+    public function canBeImpersonated(): bool
+    {
+        $impersonator = auth()->user();
+
+        if (! $impersonator instanceof self) {
+            return false;
+        }
+
+        $team = $impersonator->currentTeam;
+
+        if ($team === null || $impersonator->is($this)) {
+            return false;
+        }
+
+        return $this->belongsToTeam($team);
     }
 
     public function portalSlug(?Team $team = null): ?string

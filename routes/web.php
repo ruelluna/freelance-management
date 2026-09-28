@@ -7,6 +7,8 @@ use App\Http\Middleware\EnsureTeamMembership;
 use App\Http\Middleware\RedirectStaffToWorkspace;
 use Illuminate\Support\Facades\Route;
 
+Route::impersonate();
+
 Route::get('/', function () {
     $user = auth()->user();
 

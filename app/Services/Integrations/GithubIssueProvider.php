@@ -300,9 +300,7 @@ class GithubIssueProvider implements IssueProvider
             return null;
         }
 
-        $body = $payload['body'] ?? null;
-
-        return is_string($body) && trim($body) !== '' ? $body : null;
+        return $this->renderedHtmlBody($payload);
     }
 
     public function fetchCommentBodyHtml(ConnectedSource $source, int $commentId): ?string
@@ -312,13 +310,24 @@ class GithubIssueProvider implements IssueProvider
             ->throw()
             ->json();
 
+        return $this->renderedHtmlBody($payload);
+    }
+
+    protected function renderedHtmlBody(mixed $payload): ?string
+    {
         if (! is_array($payload)) {
             return null;
         }
 
-        $body = $payload['body'] ?? null;
+        foreach (['body_html', 'body'] as $key) {
+            $value = $payload[$key] ?? null;
 
-        return is_string($body) && trim($body) !== '' ? $body : null;
+            if (is_string($value) && trim($value) !== '') {
+                return $value;
+            }
+        }
+
+        return null;
     }
 
     /**

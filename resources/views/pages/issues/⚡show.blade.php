@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Issues\AddIssueComment;
+use App\Actions\Issues\CacheIssueMediaFromHtml;
 use App\Actions\Issues\RefreshIssueFromRemote;
 use App\Actions\Issues\ShareIssueComment;
 use App\Actions\Issues\UnshareIssueComment;
@@ -27,7 +28,7 @@ new #[Layout('layouts::app')] #[Title('Task')] class extends Component {
 
     public ?string $replyToId = null;
 
-    public function mount(Issue $issue, RefreshIssueFromRemote $refresh): void
+    public function mount(Issue $issue, RefreshIssueFromRemote $refresh, CacheIssueMediaFromHtml $cacheMedia): void
     {
         abort_unless($issue->team_id === $this->team()->id, 404);
 
@@ -49,6 +50,8 @@ new #[Layout('layouts::app')] #[Title('Task')] class extends Component {
                 $this->refreshIssue();
             }
         }
+
+        $this->cacheDescriptionMedia($cacheMedia);
     }
 
     public function refreshFromRemote(RefreshIssueFromRemote $refresh): void
@@ -295,6 +298,29 @@ new #[Layout('layouts::app')] #[Title('Task')] class extends Component {
         return $this->issue->comments()
             ->visibleTo(Auth::user(), $this->team())
             ->findOrFail($commentId);
+    }
+
+    protected function cacheDescriptionMedia(CacheIssueMediaFromHtml $cacheMedia): void
+    {
+        $this->issue->loadMissing('connection', 'team');
+
+        $html = $this->issue->body_html;
+
+        if (blank($html) && filled($this->issue->body) && $cacheMedia->referencesRemoteMedia($this->issue->body)) {
+            $html = \App\Support\Markdown::toHtml($this->issue->body);
+        }
+
+        if (! is_string($html) || ! $cacheMedia->referencesRemoteMedia($html)) {
+            return;
+        }
+
+        $rewritten = $cacheMedia->forIssue($this->issue, $html, $this->issue->body);
+
+        if (! is_string($rewritten) || $rewritten === $this->issue->body_html) {
+            return;
+        }
+
+        $this->issue->update(['body_html' => $rewritten]);
     }
 
     protected function team(): Team

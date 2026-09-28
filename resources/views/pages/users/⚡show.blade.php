@@ -152,9 +152,19 @@ new #[Layout('layouts::app')] #[Title('User')] class extends Component {
         <a href="{{ route('users.index') }}" class="text-sm text-zinc-500 hover:underline" wire:navigate>{{ __('Back to users') }}</a>
     </div>
 
-    <div>
-        <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">{{ $member->name }}</h1>
-        <p class="mt-1 text-sm text-gray-500 dark:text-dark-300">{{ $member->email }} · {{ $this->roleLabel }}</p>
+    <div class="flex items-start justify-between gap-4">
+        <div>
+            <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">{{ $member->name }}</h1>
+            <p class="mt-1 text-sm text-gray-500 dark:text-dark-300">{{ $member->email }} · {{ $this->roleLabel }}</p>
+        </div>
+        @if (can_impersonate() && can_be_impersonated($member))
+            <x-button
+                outline
+                :href="route('impersonate', $member)"
+                data-test="view-as-user"
+                :text="__('View as')"
+            />
+        @endif
     </div>
 
     @if ($this->canUpdate)

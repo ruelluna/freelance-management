@@ -36,7 +36,8 @@ class SyncIssueFromRemote
 
             $skipIssueHtml = $existing !== null
                 && $existing->body === $remote->body
-                && filled($existing->body_html);
+                && filled($existing->body_html)
+                && ! $this->cacheMedia->referencesRemoteMedia($existing->body_html);
 
             $attributes = [
                 'team_id' => $source->team_id,
@@ -95,7 +96,8 @@ class SyncIssueFromRemote
 
             $skipCommentHtml = $existing !== null
                 && $existing->body === $comment->body
-                && filled($existing->body_html);
+                && filled($existing->body_html)
+                && ! $this->cacheMedia->referencesRemoteMedia($existing->body_html);
 
             $origin = $existing?->origin === CommentOrigin::Local
                 ? CommentOrigin::Local

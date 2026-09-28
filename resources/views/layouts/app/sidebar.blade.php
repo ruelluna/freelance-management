@@ -10,6 +10,13 @@
         @include('partials.head', ['title' => $title])
     </head>
     <body>
+        @impersonating
+            <div class="flex items-center justify-between gap-4 border-b border-amber-600/30 bg-amber-500 px-4 py-2 text-sm font-medium text-amber-950" data-test="impersonation-banner">
+                <p>{{ __('Viewing as :name', ['name' => auth()->user()->name]) }}</p>
+                <a href="{{ route('impersonate.leave') }}" class="underline" data-test="leave-impersonation">{{ __('Leave') }}</a>
+            </div>
+        @endImpersonating
+
         <x-layout>
             <x-slot:header>
                 <x-layout.header>

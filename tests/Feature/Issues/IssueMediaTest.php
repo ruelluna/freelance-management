@@ -2,7 +2,9 @@
 
 use App\Models\Issue;
 use App\Models\User;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Livewire\Livewire;
 
 test('team members can view cached issue media', function () {
     ['owner' => $owner, 'team' => $team, 'source' => $source, 'connection' => $connection] = githubConnectionForOwner();
@@ -64,4 +66,38 @@ test('invalid issue media asset ids are rejected', function () {
             'asset' => 'not-a-valid-uuid',
         ]))
         ->assertNotFound();
+});
+
+test('the task page replaces github user attachments with cached images', function () {
+    Http::preventStrayRequests();
+
+    ['owner' => $owner, 'team' => $team, 'connection' => $connection, 'source' => $source] = githubConnectionForOwner();
+
+    $assetUuid = '9498dba1-d084-4319-aafc-d35c0de16cb7';
+    $src = 'https://github.com/user-attachments/assets/'.$assetUuid;
+
+    Http::fake([
+        'https://github.com/user-attachments/assets/*' => Http::response('png-bytes', 200, [
+            'Content-Type' => 'image/png',
+        ]),
+    ]);
+
+    $issue = Issue::factory()->create([
+        'team_id' => $team->id,
+        'connection_id' => $connection->id,
+        'connected_source_id' => $source->id,
+        'last_synced_at' => now(),
+        'title' => 'Screenshot task',
+        'body' => '<img src="'.$src.'" alt="Image" />',
+        'body_html' => '<p><img src="'.$src.'" alt="Image"></p>',
+    ]);
+
+    $this->actingAs($owner);
+
+    $html = Livewire::test('pages::issues.show', ['issue' => $issue])->html();
+
+    expect($html)->toContain('/issues/'.$issue->id.'/media/'.$assetUuid)
+        ->not->toContain('src="'.$src.'"');
+
+    Storage::disk('local')->assertExists("issue-media/{$issue->id}/{$assetUuid}.png");
 });
