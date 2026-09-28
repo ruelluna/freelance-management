@@ -38,7 +38,7 @@ new #[Layout('layouts::app')] #[Title('User')] class extends Component {
     {
         $role = $user->teamRole($this->team());
 
-        abort_unless($role !== null && ! $role->isClient(), 404);
+        abort_unless($role !== null, 404);
 
         Gate::authorize('view', $user);
 
@@ -91,7 +91,7 @@ new #[Layout('layouts::app')] #[Title('User')] class extends Component {
      */
     protected function roles(): array
     {
-        return (new StaffRoleQuery)->names();
+        return (new StaffRoleQuery)->names(except: $this->roleExceptions());
     }
 
     /**
@@ -100,7 +100,19 @@ new #[Layout('layouts::app')] #[Title('User')] class extends Component {
     #[Computed]
     public function roleOptions(): array
     {
-        return (new StaffRoleQuery)->options();
+        return (new StaffRoleQuery)->options(except: $this->roleExceptions());
+    }
+
+    /**
+     * @return array<int, TeamRole>
+     */
+    protected function roleExceptions(): array
+    {
+        if ($this->member->teamRole($this->team())?->isClient()) {
+            return [TeamRole::Owner, TeamRole::Admin, TeamRole::Member];
+        }
+
+        return [TeamRole::Owner, TeamRole::Client];
     }
 
     #[Computed]

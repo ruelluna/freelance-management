@@ -1,9 +1,12 @@
 <?php
 
+use App\Actions\Users\CreateClientUser;
 use App\Actions\Users\CreateStaffUser;
 use App\Concerns\PasswordValidationRules;
 use App\Concerns\ProfileValidationRules;
+use App\Enums\ClientStatus;
 use App\Enums\TeamRole;
+use App\Models\Client;
 use App\Models\Team;
 use App\Models\User;
 use App\Queries\StaffRoleQuery;
@@ -33,6 +36,8 @@ new #[Layout('layouts::app')] #[Title('Users')] class extends Component {
 
     public string $role = 'member';
 
+    public string $clientId = '';
+
     public function mount(): void
     {
         if (Auth::user()->isTeamClient($this->team())) {
@@ -42,7 +47,7 @@ new #[Layout('layouts::app')] #[Title('Users')] class extends Component {
         Gate::authorize('viewAny', [User::class, $this->team()]);
     }
 
-    public function create(CreateStaffUser $action): void
+    public function create(CreateStaffUser $staffUsers, CreateClientUser $clientUsers): void
     {
         Gate::authorize('create', [User::class, $this->team()]);
 
@@ -50,17 +55,41 @@ new #[Layout('layouts::app')] #[Title('Users')] class extends Component {
             ...$this->profileRules(),
             'password' => $this->passwordRules(),
             'role' => ['required', Rule::in($this->roles())],
+            'clientId' => [
+                Rule::requiredIf($this->role === TeamRole::Client->value),
+                Rule::excludeIf($this->role !== TeamRole::Client->value),
+                'string',
+                Rule::exists('clients', 'id')->where(
+                    fn ($query) => $query
+                        ->where('team_id', $this->team()->id)
+                        ->where('status', ClientStatus::Active->value),
+                ),
+            ],
         ]);
 
-        $action->handle(
-            $this->team(),
-            $validated['name'],
-            $validated['email'],
-            $validated['password'],
-            TeamRole::from($validated['role']),
-        );
+        $role = TeamRole::from($validated['role']);
 
-        $this->reset('name', 'email', 'password', 'password_confirmation', 'role');
+        if ($role->isClient()) {
+            $client = $this->team()->clients()->whereKey($validated['clientId'])->firstOrFail();
+
+            $clientUsers->handle(
+                $this->team(),
+                $client,
+                $validated['name'],
+                $validated['email'],
+                $validated['password'],
+            );
+        } else {
+            $staffUsers->handle(
+                $this->team(),
+                $validated['name'],
+                $validated['email'],
+                $validated['password'],
+                $role,
+            );
+        }
+
+        $this->reset('name', 'email', 'password', 'password_confirmation', 'role', 'clientId');
         $this->role = TeamRole::Member->value;
 
         $this->toast()->success(__('User created.'))->send();
@@ -79,7 +108,20 @@ new #[Layout('layouts::app')] #[Title('Users')] class extends Component {
         }
 
         return $this->team()
-            ->staff()
+            ->members()
+            ->orderBy('name')
+            ->get();
+    }
+
+    /**
+     * @return Collection<int, Client>
+     */
+    #[Computed]
+    public function clients(): Collection
+    {
+        return $this->team()
+            ->clients()
+            ->where('status', ClientStatus::Active)
             ->orderBy('name')
             ->get();
     }
@@ -89,7 +131,7 @@ new #[Layout('layouts::app')] #[Title('Users')] class extends Component {
      */
     protected function roles(): array
     {
-        return (new StaffRoleQuery)->names();
+        return (new StaffRoleQuery)->names(except: [TeamRole::Owner]);
     }
 
     /**
@@ -98,7 +140,7 @@ new #[Layout('layouts::app')] #[Title('Users')] class extends Component {
     #[Computed]
     public function roleOptions(): array
     {
-        return (new StaffRoleQuery)->options();
+        return (new StaffRoleQuery)->options(except: [TeamRole::Owner]);
     }
 
     #[Computed]
@@ -143,11 +185,19 @@ new #[Layout('layouts::app')] #[Title('Users')] class extends Component {
                     autocomplete="new-password"
                     data-test="user-password-confirmation"
                 />
-                <x-select.native wire:model="role" :label="__('Role')" data-test="user-role">
+                <x-select.native wire:model.live="role" :label="__('Role')" data-test="user-role">
                     @foreach ($this->roleOptions as $roleOption)
                         <option value="{{ $roleOption['value'] }}">{{ $roleOption['label'] }}</option>
                     @endforeach
                 </x-select.native>
+                @if ($role === 'client')
+                    <x-select.native wire:model="clientId" :label="__('Client')" data-test="user-client">
+                        <option value="">{{ __('Select a client') }}</option>
+                        @foreach ($this->clients as $client)
+                            <option value="{{ $client->id }}">{{ $client->name }}</option>
+                        @endforeach
+                    </x-select.native>
+                @endif
                 <x-button submit data-test="create-user" :text="__('Add user')" />
             </form>
         </x-card>

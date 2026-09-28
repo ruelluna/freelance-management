@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\TeamRole;
+use App\Models\Client;
 use App\Models\User;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Support\Facades\Hash;
@@ -82,9 +83,9 @@ test('user role options come from the database', function () {
 
     Livewire::test('pages::users.index')
         ->assertSeeHtml('value="admin"')
+        ->assertSeeHtml('value="client"')
         ->assertSeeHtml('value="member"')
-        ->assertDontSeeHtml('value="owner"')
-        ->assertDontSeeHtml('value="client"');
+        ->assertDontSeeHtml('value="owner"');
 
     Role::query()->where('name', TeamRole::Admin->value)->delete();
 
@@ -93,7 +94,7 @@ test('user role options come from the database', function () {
         ->assertSeeHtml('value="member"');
 });
 
-test('the users page lists employees and hides client users', function () {
+test('the users page lists employees and client users', function () {
     ['owner' => $owner, 'team' => $team, 'client' => $client] = clientPortalFixtures();
 
     $employee = attachTeamMember($team, User::factory()->create([
@@ -113,10 +114,20 @@ test('the users page lists employees and hides client users', function () {
     Livewire::test('pages::users.index')
         ->assertSee('Riley Employee')
         ->assertSee($owner->name)
-        ->assertDontSee('Casey Client');
+        ->assertSee('Casey Client');
 
     Livewire::test('pages::users.show', ['user' => $clientUser])
-        ->assertNotFound();
+        ->assertSee('Casey Client')
+        ->set('name', 'Casey Senior')
+        ->set('role', TeamRole::Member->value)
+        ->call('save')
+        ->assertHasErrors('role');
+
+    $clientUser->refresh();
+
+    expect($clientUser->name)->toBe('Casey Client')
+        ->and($clientUser->teamRole($team))->toBe(TeamRole::Client)
+        ->and($clientUser->clientForTeam($team)?->is($client))->toBeTrue();
 
     expect($employee->teamRole($team))->toBe(TeamRole::Member);
 });
@@ -151,8 +162,35 @@ test('an owner cannot delete their own account from user management', function (
     ]);
 });
 
-test('a user role must be admin or member', function () {
-    $owner = User::factory()->create(['email' => 'owner@example.com']);
+test('an owner can create a client user for a client', function () {
+    ['owner' => $owner, 'team' => $team, 'client' => $client] = clientPortalFixtures();
+
+    $this->actingAs($owner);
+
+    Livewire::test('pages::users.index')
+        ->set('role', TeamRole::Client->value)
+        ->assertSeeHtml('data-test="user-client"')
+        ->set('name', 'Casey Client')
+        ->set('email', 'casey@example.com')
+        ->set('password', 'password')
+        ->set('password_confirmation', 'password')
+        ->set('clientId', $client->id)
+        ->call('create')
+        ->assertHasNoErrors();
+
+    $clientUser = User::query()->where('email', 'casey@example.com')->first();
+
+    expect($clientUser)->not->toBeNull()
+        ->and($clientUser->teamRole($team))->toBe(TeamRole::Client)
+        ->and($clientUser->clientForTeam($team)?->is($client))->toBeTrue()
+        ->and($clientUser->email_verified_at)->not->toBeNull();
+});
+
+test('creating a client user requires a client on this team', function () {
+    ['owner' => $owner, 'client' => $client] = clientPortalFixtures();
+    $otherClient = Client::factory()->create([
+        'name' => 'Other Co',
+    ]);
 
     $this->actingAs($owner);
 
@@ -162,6 +200,37 @@ test('a user role must be admin or member', function () {
         ->set('password', 'password')
         ->set('password_confirmation', 'password')
         ->set('role', TeamRole::Client->value)
+        ->call('create')
+        ->assertHasErrors('clientId');
+
+    Livewire::test('pages::users.index')
+        ->set('name', 'Casey Client')
+        ->set('email', 'casey@example.com')
+        ->set('password', 'password')
+        ->set('password_confirmation', 'password')
+        ->set('role', TeamRole::Client->value)
+        ->set('clientId', $otherClient->id)
+        ->call('create')
+        ->assertHasErrors('clientId');
+
+    $this->assertDatabaseMissing('users', [
+        'email' => 'casey@example.com',
+    ]);
+
+    expect($client->users)->toBeEmpty();
+});
+
+test('a user role cannot be owner', function () {
+    $owner = User::factory()->create(['email' => 'owner@example.com']);
+
+    $this->actingAs($owner);
+
+    Livewire::test('pages::users.index')
+        ->set('name', 'Casey Client')
+        ->set('email', 'casey@example.com')
+        ->set('password', 'password')
+        ->set('password_confirmation', 'password')
+        ->set('role', TeamRole::Owner->value)
         ->call('create')
         ->assertHasErrors('role');
 

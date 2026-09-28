@@ -22,13 +22,17 @@ class UpdateStaffUser
     ): User {
         $currentRole = $user->teamRole($team);
 
-        if ($currentRole === null || $currentRole === TeamRole::Owner || $currentRole->isClient()) {
+        if ($currentRole === null || $currentRole === TeamRole::Owner) {
             throw ValidationException::withMessages([
                 'role' => __('This user cannot be updated here.'),
             ]);
         }
 
-        if (! in_array($role->value, (new StaffRoleQuery)->names(), true)) {
+        $allowed = $currentRole->isClient()
+            ? [TeamRole::Client->value]
+            : (new StaffRoleQuery)->names();
+
+        if (! in_array($role->value, $allowed, true)) {
             throw ValidationException::withMessages([
                 'role' => __('Choose a role from the list.'),
             ]);

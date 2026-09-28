@@ -15,7 +15,7 @@ class DeleteStaffUser
     {
         $role = $user->teamRole($team);
 
-        if ($role === null || $role === TeamRole::Owner || $role->isClient()) {
+        if ($role === null || $role === TeamRole::Owner) {
             throw ValidationException::withMessages([
                 'user' => __('This user cannot be deleted.'),
             ]);
@@ -23,7 +23,7 @@ class DeleteStaffUser
 
         $userId = $user->id;
 
-        DB::transaction(function () use ($team, $user): void {
+        DB::transaction(function () use ($team, $user, $role): void {
             $issueIds = $user->assignedIssues()
                 ->where('issues.team_id', $team->id)
                 ->pluck('issues.id');
@@ -35,6 +35,14 @@ class DeleteStaffUser
                 ->pluck('projects.id');
 
             $user->assignedProjects()->detach($projectIds);
+
+            if ($role->isClient()) {
+                $clientIds = $user->clients()
+                    ->where('clients.team_id', $team->id)
+                    ->pluck('clients.id');
+
+                $user->clients()->detach($clientIds);
+            }
 
             $team->memberships()
                 ->where('user_id', $user->id)

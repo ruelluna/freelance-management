@@ -18,8 +18,9 @@ class UserPolicy
     {
         $team = $user->currentTeam;
 
-        return $this->managesStaff($user, $team)
-            && $this->staffRole($member, $team) !== null;
+        return $team !== null
+            && $this->managesStaff($user, $team)
+            && $member->teamRole($team) !== null;
     }
 
     public function create(User $user, ?Team $team = null): bool
@@ -30,7 +31,7 @@ class UserPolicy
     public function update(User $user, User $member): bool
     {
         $team = $user->currentTeam;
-        $role = $team === null ? null : $this->staffRole($member, $team);
+        $role = $team === null ? null : $member->teamRole($team);
 
         return $this->managesStaff($user, $team)
             && $role !== null
@@ -48,16 +49,5 @@ class UserPolicy
         return $team !== null
             && $user->belongsToTeam($team)
             && $user->hasTeamPermission($team, TeamPermission::ManageUsers);
-    }
-
-    private function staffRole(User $member, Team $team): ?TeamRole
-    {
-        $role = $member->teamRole($team);
-
-        if ($role === null || $role->isClient()) {
-            return null;
-        }
-
-        return $role;
     }
 }
