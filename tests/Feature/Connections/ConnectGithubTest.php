@@ -6,6 +6,7 @@ use App\Models\Client;
 use App\Models\Connection;
 use App\Models\Project;
 use App\Models\User;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
@@ -22,7 +23,11 @@ test('an owner can connect one github repository to a project', function () {
     ]);
 
     Http::fake([
-        'https://api.github.com/user/repos*' => Http::response([
+        'https://api.github.com/user' => Http::response(['login' => 'ruelluna']),
+        'https://api.github.com/user/orgs*' => Http::response([
+            ['login' => 'acme'],
+        ]),
+        'https://api.github.com/orgs/acme/repos*' => Http::response([
             [
                 'full_name' => 'acme/api',
                 'name' => 'api',
@@ -36,7 +41,6 @@ test('an owner can connect one github repository to a project', function () {
                 'html_url' => 'https://github.com/acme/site',
             ],
         ]),
-        'https://api.github.com/search/repositories*' => Http::response(['items' => []]),
     ]);
 
     $this->actingAs($owner);
@@ -44,9 +48,15 @@ test('an owner can connect one github repository to a project', function () {
     Livewire::test('projects.integrations', ['project' => $project])
         ->set('name', 'Client GitHub')
         ->set('token', 'ghp_test_token_value_12345')
-        ->call('fetchRepos')
+        ->call('loadAccounts')
         ->assertHasNoErrors()
         ->assertSet('tokenVerified', true)
+        ->assertSet('accounts', [
+            ['login' => 'ruelluna', 'personal' => true],
+            ['login' => 'acme', 'personal' => false],
+        ])
+        ->set('selectedOwner', 'acme')
+        ->assertSet('availableRepos', ['acme/api', 'acme/site'])
         ->set('selectedRepo', 'acme/api')
         ->call('connect')
         ->assertHasNoErrors();
@@ -65,7 +75,7 @@ test('an owner can connect one github repository to a project', function () {
     Queue::assertPushed(SyncConnectedSourceJob::class);
 });
 
-test('loaded repositories can be filtered by search', function () {
+test('repositories for the selected account can be filtered by search', function () {
     Http::preventStrayRequests();
 
     $owner = User::factory()->create(['email' => 'owner@example.com']);
@@ -74,7 +84,11 @@ test('loaded repositories can be filtered by search', function () {
     ]);
 
     Http::fake([
-        'https://api.github.com/user/repos*' => Http::response([
+        'https://api.github.com/user' => Http::response(['login' => 'ruelluna']),
+        'https://api.github.com/user/orgs*' => Http::response([
+            ['login' => 'acme'],
+        ]),
+        'https://api.github.com/orgs/acme/repos*' => Http::response([
             [
                 'full_name' => 'acme/api',
                 'name' => 'api',
@@ -87,31 +101,23 @@ test('loaded repositories can be filtered by search', function () {
                 'private' => true,
                 'html_url' => 'https://github.com/acme/site',
             ],
-            [
-                'full_name' => 'other-org/docs',
-                'name' => 'docs',
-                'private' => false,
-                'html_url' => 'https://github.com/other-org/docs',
-            ],
         ]),
-        'https://api.github.com/search/repositories*' => Http::response(['items' => []]),
     ]);
 
     $this->actingAs($owner);
 
     Livewire::test('projects.integrations', ['project' => $project])
         ->set('token', 'ghp_test_token_value_12345')
-        ->call('fetchRepos')
-        ->assertSet('availableRepos', ['acme/api', 'acme/site', 'other-org/docs'])
-        ->set('repoSearch', 'acme')
-        ->assertSet('filteredRepos', ['acme/api', 'acme/site'])
-        ->set('repoSearch', 'docs')
-        ->assertSet('filteredRepos', ['other-org/docs'])
+        ->call('loadAccounts')
+        ->set('selectedOwner', 'acme')
+        ->assertSet('availableRepos', ['acme/api', 'acme/site'])
+        ->set('repoSearch', 'site')
+        ->assertSet('filteredRepos', ['acme/site'])
         ->set('repoSearch', 'missing')
         ->assertSet('filteredRepos', []);
 });
 
-test('repository search can find private repos via github search api', function () {
+test('choosing a personal account lists its private repositories', function () {
     Http::preventStrayRequests();
 
     $owner = User::factory()->create(['email' => 'owner@example.com']);
@@ -120,22 +126,20 @@ test('repository search can find private repos via github search api', function 
     ]);
 
     Http::fake([
+        'https://api.github.com/user' => Http::response(['login' => 'ruelluna']),
+        'https://api.github.com/user/orgs*' => Http::response([], 403),
         'https://api.github.com/user/repos*' => Http::response([
             [
-                'full_name' => 'acme/public-app',
+                'full_name' => 'ruelluna/public-app',
                 'name' => 'public-app',
                 'private' => false,
-                'html_url' => 'https://github.com/acme/public-app',
+                'html_url' => 'https://github.com/ruelluna/public-app',
             ],
-        ]),
-        'https://api.github.com/search/repositories*' => Http::response([
-            'items' => [
-                [
-                    'full_name' => 'acme/secret-app',
-                    'name' => 'secret-app',
-                    'private' => true,
-                    'html_url' => 'https://github.com/acme/secret-app',
-                ],
+            [
+                'full_name' => 'ruelluna/ahlbakery',
+                'name' => 'ahlbakery',
+                'private' => true,
+                'html_url' => 'https://github.com/ruelluna/ahlbakery',
             ],
         ]),
     ]);
@@ -144,11 +148,19 @@ test('repository search can find private repos via github search api', function 
 
     Livewire::test('projects.integrations', ['project' => $project])
         ->set('token', 'ghp_test_token_value_12345')
-        ->call('fetchRepos')
-        ->assertSet('availableRepos', ['acme/public-app'])
-        ->set('repoSearch', 'secret')
-        ->assertSet('filteredRepos', ['acme/secret-app'])
-        ->assertSet('repoPrivacy.acme/secret-app', true);
+        ->call('loadAccounts')
+        ->assertSet('accounts', [
+            ['login' => 'ruelluna', 'personal' => true],
+        ])
+        ->set('selectedOwner', 'ruelluna')
+        ->assertSet('availableRepos', ['ruelluna/public-app', 'ruelluna/ahlbakery'])
+        ->assertSet('repoPrivacy.ruelluna/ahlbakery', true)
+        ->assertSee('ahlbakery');
+
+    Http::assertSent(function (Request $request): bool {
+        return str_contains($request->url(), '/user/repos')
+            && ($request->data()['affiliation'] ?? null) === 'owner,collaborator';
+    });
 });
 
 test('a member cannot manage project integrations', function () {

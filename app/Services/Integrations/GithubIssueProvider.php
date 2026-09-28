@@ -54,7 +54,113 @@ class GithubIssueProvider implements IssueProvider
     }
 
     /**
+     * Accounts the token can browse: the authenticated user, then their organizations.
+     *
+     * @return Collection<int, array{login: string, personal: bool}>
+     */
+    public function listAccounts(Connection $connection): Collection
+    {
+        $user = $this->client($connection->token)->retry(1)->get('/user')->throw()->json();
+        $login = is_array($user) ? (string) ($user['login'] ?? '') : '';
+
+        $accounts = collect();
+
+        if ($login !== '') {
+            $accounts->push([
+                'login' => $login,
+                'personal' => true,
+            ]);
+        }
+
+        try {
+            for ($page = 1; $page <= 10; $page++) {
+                $orgs = $this->client($connection->token)->retry(1)->get('/user/orgs', [
+                    'per_page' => 100,
+                    'page' => $page,
+                ])->throw()->json();
+
+                if (! is_array($orgs) || $orgs === []) {
+                    break;
+                }
+
+                foreach ($orgs as $org) {
+                    $orgLogin = is_array($org) ? (string) ($org['login'] ?? '') : '';
+
+                    if ($orgLogin === '') {
+                        continue;
+                    }
+
+                    $accounts->push([
+                        'login' => $orgLogin,
+                        'personal' => false,
+                    ]);
+                }
+
+                if (count($orgs) < 100) {
+                    break;
+                }
+            }
+        } catch (\Throwable) {
+            // A fine-grained token can read the user without permission to list organizations.
+        }
+
+        return $accounts
+            ->unique('login')
+            ->sortBy([
+                ['personal', 'desc'],
+                ['login', 'asc'],
+            ])
+            ->values();
+    }
+
+    /**
+     * Repositories for one account. Personal accounts include owned and collaborator
+     * repos. Organizations are listed from that org, including private repos.
+     *
+     * @return Collection<int, RemoteSource>
+     */
+    public function listAccountRepositories(Connection $connection, string $login, bool $personal): Collection
+    {
+        $sources = collect();
+
+        for ($page = 1; $page <= 100; $page++) {
+            $response = $personal
+                ? $this->client($connection->token)->get('/user/repos', [
+                    'per_page' => 100,
+                    'page' => $page,
+                    'sort' => 'full_name',
+                    'visibility' => 'all',
+                    'affiliation' => 'owner,collaborator',
+                ])
+                : $this->client($connection->token)->get('/orgs/'.rawurlencode($login).'/repos', [
+                    'per_page' => 100,
+                    'page' => $page,
+                    'sort' => 'full_name',
+                    'type' => 'all',
+                ]);
+
+            $repos = $response->throw()->json();
+
+            if (! is_array($repos) || $repos === []) {
+                break;
+            }
+
+            $sources = $sources->merge($this->mapRepoItems($repos));
+
+            if (count($repos) < 100) {
+                break;
+            }
+        }
+
+        return $sources->unique(fn (RemoteSource $source): string => $source->externalId)->values();
+    }
+
+    /**
      * Search repositories by name, including private repos the token can access.
+     *
+     * An `owner/repo` query is resolved with the repository endpoint. GitHub's
+     * search API omits private repositories unless the query is scoped to a
+     * user or organization, and `in:name` does not match an owner/name string.
      *
      * @return Collection<int, RemoteSource>
      */
@@ -66,9 +172,13 @@ class GithubIssueProvider implements IssueProvider
             return collect();
         }
 
+        if (preg_match('/^(?<owner>[A-Za-z0-9_.-]+)\/(?<repo>[A-Za-z0-9_.-]+)$/', $query, $matches) === 1) {
+            return $this->findRepository($connection->token, $matches['owner'], $matches['repo']);
+        }
+
         $response = $this->client($connection->token)
             ->get('/search/repositories', [
-                'q' => $query.' in:name fork:true',
+                'q' => $this->repositorySearchQuery($connection->token, $query),
                 'sort' => 'updated',
                 'per_page' => 100,
             ])
@@ -383,6 +493,74 @@ class GithubIssueProvider implements IssueProvider
         $path = '/repos/'.$owner.'/'.$repo;
 
         return $suffix === '' ? $path : $path.'/'.ltrim($suffix, '/');
+    }
+
+    /**
+     * @return Collection<int, RemoteSource>
+     */
+    protected function findRepository(string $token, string $owner, string $repo): Collection
+    {
+        $response = $this->client($token)->retry(1)->get('/repos/'.$owner.'/'.$repo);
+
+        if ($response->notFound() || $response->forbidden()) {
+            return collect();
+        }
+
+        $payload = $response->throw()->json();
+
+        if (! is_array($payload) || ! isset($payload['full_name'])) {
+            return collect();
+        }
+
+        return $this->mapRepoItems([$payload]);
+    }
+
+    protected function repositorySearchQuery(string $token, string $query): string
+    {
+        $scope = $this->repositorySearchScope($token);
+        $q = $query.' in:name fork:true';
+
+        return $scope === '' ? $q : $q.' '.$scope;
+    }
+
+    /**
+     * GitHub's repository search returns private repos only when the query is
+     * limited to the authenticated user or one of their organizations.
+     */
+    protected function repositorySearchScope(string $token): string
+    {
+        try {
+            $user = $this->client($token)->retry(1)->get('/user')->throw()->json();
+        } catch (\Throwable) {
+            return '';
+        }
+
+        $qualifiers = [];
+        $login = is_array($user) ? ($user['login'] ?? null) : null;
+
+        if (is_string($login) && $login !== '') {
+            $qualifiers[] = 'user:'.$login;
+        }
+
+        try {
+            $orgs = $this->client($token)->retry(1)->get('/user/orgs', ['per_page' => 100])->throw()->json();
+
+            foreach (is_array($orgs) ? $orgs : [] as $org) {
+                $orgLogin = is_array($org) ? ($org['login'] ?? null) : null;
+
+                if (is_string($orgLogin) && $orgLogin !== '') {
+                    $qualifiers[] = 'org:'.$orgLogin;
+                }
+            }
+        } catch (\Throwable) {
+            // Org membership is optional. The token can still search the owner's private repos.
+        }
+
+        return match (count($qualifiers)) {
+            0 => '',
+            1 => $qualifiers[0],
+            default => '('.implode(' OR ', $qualifiers).')',
+        };
     }
 
     /**

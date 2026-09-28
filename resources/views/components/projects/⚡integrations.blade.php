@@ -29,6 +29,13 @@ new class extends Component {
     public string $token = '';
 
     /**
+     * @var array<int, array{login: string, personal: bool}>
+     */
+    public array $accounts = [];
+
+    public string $selectedOwner = '';
+
+    /**
      * @var array<int, string>
      */
     public array $availableRepos = [];
@@ -37,11 +44,6 @@ new class extends Component {
      * @var array<string, bool>
      */
     public array $repoPrivacy = [];
-
-    /**
-     * @var array<int, string>
-     */
-    public array $searchMatchedRepos = [];
 
     #[Validate('required|string')]
     public string $selectedRepo = '';
@@ -59,7 +61,7 @@ new class extends Component {
         $this->project = $project;
     }
 
-    public function fetchRepos(GithubIssueProvider $github): void
+    public function loadAccounts(GithubIssueProvider $github): void
     {
         Gate::authorize('create', [Connection::class, $this->team()]);
 
@@ -71,41 +73,42 @@ new class extends Component {
                 'token' => $this->token,
             ]);
 
-            $sources = $github->listSources($preview);
-
-            $this->availableRepos = $sources->pluck('externalId')->all();
-            $this->repoPrivacy = $sources
-                ->mapWithKeys(fn (RemoteSource $source): array => [
-                    $source->externalId => (bool) ($source->meta['private'] ?? false),
-                ])
-                ->all();
-
-            $this->repoSearch = '';
-            $this->searchMatchedRepos = [];
-            $this->selectedRepo = '';
+            $this->accounts = $github->listAccounts($preview)->all();
             $this->tokenVerified = true;
+            $this->selectedOwner = '';
+            $this->availableRepos = [];
+            $this->repoPrivacy = [];
+            $this->selectedRepo = '';
+            $this->repoSearch = '';
         } catch (\Throwable) {
             $this->addError('token', __('GitHub rejected that token. Check the PAT and try again.'));
             $this->tokenVerified = false;
+            $this->accounts = [];
+            $this->selectedOwner = '';
             $this->availableRepos = [];
             $this->repoPrivacy = [];
-            $this->searchMatchedRepos = [];
             $this->selectedRepo = '';
             $this->repoSearch = '';
         }
     }
 
-    public function updatedRepoSearch(GithubIssueProvider $github): void
+    public function updatedSelectedOwner(GithubIssueProvider $github): void
     {
-        if (! $this->tokenVerified) {
+        Gate::authorize('create', [Connection::class, $this->team()]);
+
+        $this->availableRepos = [];
+        $this->repoPrivacy = [];
+        $this->selectedRepo = '';
+        $this->repoSearch = '';
+        $this->resetErrorBag('selectedOwner');
+
+        if (! $this->tokenVerified || $this->selectedOwner === '') {
             return;
         }
 
-        $search = trim($this->repoSearch);
+        $account = collect($this->accounts)->firstWhere('login', $this->selectedOwner);
 
-        if (strlen($search) < 2) {
-            $this->searchMatchedRepos = [];
-
+        if (! is_array($account)) {
             return;
         }
 
@@ -115,15 +118,20 @@ new class extends Component {
                 'token' => $this->token,
             ]);
 
-            $sources = $github->searchSources($preview, $search);
+            $sources = $github->listAccountRepositories(
+                $preview,
+                $account['login'],
+                (bool) $account['personal'],
+            );
 
-            $this->searchMatchedRepos = $sources->pluck('externalId')->all();
-
-            foreach ($sources as $source) {
-                $this->repoPrivacy[$source->externalId] = (bool) ($source->meta['private'] ?? false);
-            }
+            $this->availableRepos = $sources->pluck('externalId')->all();
+            $this->repoPrivacy = $sources
+                ->mapWithKeys(fn (RemoteSource $source): array => [
+                    $source->externalId => (bool) ($source->meta['private'] ?? false),
+                ])
+                ->all();
         } catch (\Throwable) {
-            $this->searchMatchedRepos = [];
+            $this->addError('selectedOwner', __('GitHub could not list repositories for that account. Check that your PAT includes it.'));
         }
     }
 
@@ -135,7 +143,7 @@ new class extends Component {
 
         $connectGithub->handle($this->project, $this->token, $this->name, $this->selectedRepo);
 
-        $this->reset('token', 'availableRepos', 'repoPrivacy', 'searchMatchedRepos', 'selectedRepo', 'tokenVerified', 'repoSearch');
+        $this->reset('token', 'accounts', 'selectedOwner', 'availableRepos', 'repoPrivacy', 'selectedRepo', 'tokenVerified', 'repoSearch');
         $this->name = 'GitHub';
 
         unset($this->githubConnection);
@@ -211,17 +219,10 @@ new class extends Component {
             return $this->availableRepos;
         }
 
-        $localMatches = array_values(array_filter(
+        return array_values(array_filter(
             $this->availableRepos,
             fn (string $repo): bool => str_contains(strtolower($repo), $search),
         ));
-
-        $remoteMatches = array_values(array_filter(
-            $this->searchMatchedRepos,
-            fn (string $repo): bool => str_contains(strtolower($repo), $search),
-        ));
-
-        return array_values(array_unique([...$localMatches, ...$remoteMatches]));
     }
 
     protected function team(): Team
@@ -291,45 +292,58 @@ new class extends Component {
 
             <form id="connect-github-form" wire:submit="connect" class="space-y-6">
                 <p class="text-sm text-gray-500 dark:text-dark-300">
-                    {{ __('Use a fine-grained PAT with Issues read/write on the repository you want. For a private repo, grant Repository access to that repo (or All repositories) and Metadata read access.') }}
+                    {{ __('Use a fine-grained PAT with Issues read/write. Choose your account or an organization, then the repository. For a private repo, grant that repo (or all repositories) and Metadata read access.') }}
                 </p>
 
                 <x-input wire:model="name" :label="__('Name')" data-test="connection-name" />
                 <x-input wire:model="token" type="password" :label="__('Personal access token')" data-test="github-token" />
 
-                <x-button outline wire:click="fetchRepos" data-test="fetch-repos" :text="__('Load repositories')" />
+                <x-button outline wire:click="loadAccounts" data-test="load-accounts" :text="__('Continue')" />
 
                 @if ($tokenVerified)
-                    <x-input
-                        wire:model.live.debounce.300ms="repoSearch"
-                        icon="magnifying-glass"
-                        :placeholder="__('Search repositories')"
-                        data-test="repo-search"
-                    />
+                    <x-select.native wire:model.live="selectedOwner" :label="__('Organization')" data-test="github-owner">
+                        <option value="">{{ __('Select an organization') }}</option>
+                        @foreach ($accounts as $account)
+                            <option value="{{ $account['login'] }}" wire:key="github-owner-{{ $account['login'] }}">
+                                {{ $account['personal'] ? __(':login (personal)', ['login' => $account['login']]) : $account['login'] }}
+                            </option>
+                        @endforeach
+                    </x-select.native>
 
-                    <div class="max-h-64 space-y-2 overflow-y-auto rounded-lg border border-zinc-200 p-3 dark:border-dark-700">
-                        @forelse ($this->filteredRepos as $repo)
-                            <label class="flex items-center gap-2" wire:key="repo-{{ $repo }}">
-                                <input type="radio" name="selectedRepo" value="{{ $repo }}" wire:model="selectedRepo" data-test="repo-option">
-                                <span class="flex items-center gap-2">
-                                    <span>{{ $repo }}</span>
-                                    @if ($repoPrivacy[$repo] ?? false)
-                                        <x-badge sm color="gray" light :text="__('Private')" />
+                    @if ($selectedOwner !== '')
+                        <p wire:loading wire:target="selectedOwner" class="text-sm text-gray-500 dark:text-dark-300">
+                            {{ __('Loading repositories...') }}
+                        </p>
+
+                        <x-input
+                            wire:model.live.debounce.300ms="repoSearch"
+                            icon="magnifying-glass"
+                            :placeholder="__('Search repositories')"
+                            data-test="repo-search"
+                        />
+
+                        <div class="max-h-64 space-y-2 overflow-y-auto rounded-lg border border-zinc-200 p-3 dark:border-dark-700">
+                            @forelse ($this->filteredRepos as $repo)
+                                <label class="flex items-center gap-2" wire:key="repo-{{ $repo }}">
+                                    <input type="radio" name="selectedRepo" value="{{ $repo }}" wire:model="selectedRepo" data-test="repo-option">
+                                    <span class="flex items-center gap-2">
+                                        <span>{{ \Illuminate\Support\Str::after($repo, '/') }}</span>
+                                        @if ($repoPrivacy[$repo] ?? false)
+                                            <x-badge sm color="gray" light :text="__('Private')" />
+                                        @endif
+                                    </span>
+                                </label>
+                            @empty
+                                <p class="text-sm text-gray-500 dark:text-dark-300">
+                                    @if ($availableRepos === [])
+                                        {{ __('No repositories found for this account. Check that your PAT includes them under Repository access.') }}
+                                    @else
+                                        {{ __('No repositories match your search.') }}
                                     @endif
-                                </span>
-                            </label>
-                        @empty
-                            <p class="text-sm text-gray-500 dark:text-dark-300">
-                                @if ($availableRepos === [])
-                                    {{ __('No repositories found for this token.') }}
-                                @elseif (strlen(trim($repoSearch)) >= 2)
-                                    {{ __('No repositories match your search. Check that your PAT includes the private repo under Repository access.') }}
-                                @else
-                                    {{ __('No repositories match your search.') }}
-                                @endif
-                            </p>
-                        @endforelse
-                    </div>
+                                </p>
+                            @endforelse
+                        </div>
+                    @endif
                 @endif
             </form>
 
