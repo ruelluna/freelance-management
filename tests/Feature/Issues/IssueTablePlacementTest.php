@@ -76,6 +76,8 @@ test('the task table labels todoist, coda, and manual sources', function () {
 
     $todoist = Connection::factory()->create([
         'team_id' => $team->id,
+        'user_id' => $owner->id,
+        'project_id' => null,
         'provider' => Provider::Todoist,
         'name' => 'Todoist',
     ]);
