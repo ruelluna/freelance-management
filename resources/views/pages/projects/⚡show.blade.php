@@ -1,14 +1,11 @@
 <?php
 
-use App\Actions\Projects\DeleteProject;
-use App\Actions\Projects\UpdateProject;
-use App\Enums\ProjectStatus;
-use App\Enums\Provider;
-use App\Models\ConnectedSource;
+use App\Actions\Issues\AssignIssue;
+use App\Models\Connection;
 use App\Models\Issue;
 use App\Models\Project;
 use App\Models\Team;
-use Flux\Flux;
+use App\Services\TeamResourceAccess;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -21,76 +18,29 @@ use Livewire\Component;
 new #[Layout('layouts::app')] #[Title('Project')] class extends Component {
     public Project $project;
 
-    public string $name = '';
-
-    public string $description = '';
-
-    public string $connectedSourceId = '';
-
     public function mount(Project $project): void
     {
         abort_unless($project->team_id === $this->team()->id, 404);
 
         Gate::authorize('view', $project);
 
-        $this->project = $project->load('connectedSource');
-        $this->fillFromProject();
-    }
-
-    public function save(UpdateProject $action): void
-    {
-        Gate::authorize('update', $this->project);
-
-        $validated = $this->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'description' => ['nullable', 'string', 'max:65535'],
-            'connectedSourceId' => ['nullable', 'uuid'],
-        ]);
-
-        $this->project = $action->handle(
-            $this->project,
-            $validated['name'],
-            $validated['description'] ?? null,
-            $this->project->status,
-            $validated['connectedSourceId'] !== '' ? $validated['connectedSourceId'] : null,
-        );
-
-        $this->fillFromProject();
-
-        Flux::toast(variant: 'success', text: __('Project saved.'));
-    }
-
-    public function toggleStatus(UpdateProject $action): void
-    {
-        Gate::authorize('update', $this->project);
-
-        $next = $this->project->status === ProjectStatus::Open
-            ? ProjectStatus::Closed
-            : ProjectStatus::Open;
-
-        $this->project = $action->handle(
-            $this->project,
-            $this->project->name,
-            $this->project->description,
-            $next,
-            $this->project->connected_source_id,
-        );
-
-        Flux::toast(variant: 'success', text: __('Project :status.', ['status' => $next->label()]));
-    }
-
-    public function delete(DeleteProject $action): void
-    {
-        Gate::authorize('delete', $this->project);
-
-        $action->handle($this->project);
-
-        $this->redirect(route('projects.index'), navigate: true);
+        $this->project = $project->load($this->projectRelations());
     }
 
     #[On('task-created')]
     public function refreshTasks(): void
     {
+        unset($this->tasks);
+    }
+
+    public function assignTask(string $issueId, string $userId, AssignIssue $action): void
+    {
+        $issue = $this->project->issues()->findOrFail($issueId);
+
+        Gate::authorize('assign', $issue);
+
+        $action->handle($issue, $userId === '' ? [] : [$userId]);
+
         unset($this->tasks);
     }
 
@@ -100,22 +50,10 @@ new #[Layout('layouts::app')] #[Title('Project')] class extends Component {
     #[Computed]
     public function tasks(): Collection
     {
-        return $this->project->issues()
+        return TeamResourceAccess::for(Auth::user(), $this->team())
+            ->scopeIssues($this->project->issues())
             ->with(['assignees', 'labels'])
             ->latest()
-            ->get();
-    }
-
-    /**
-     * @return Collection<int, ConnectedSource>
-     */
-    #[Computed]
-    public function githubSources(): Collection
-    {
-        return ConnectedSource::query()
-            ->whereBelongsTo($this->team())
-            ->whereHas('connection', fn ($query) => $query->where('provider', Provider::Github))
-            ->orderBy('name')
             ->get();
     }
 
@@ -126,16 +64,38 @@ new #[Layout('layouts::app')] #[Title('Project')] class extends Component {
     }
 
     #[Computed]
-    public function canCreateTask(): bool
+    public function canManageConnections(): bool
     {
-        return Auth::user()->can('create', [Issue::class, $this->team()]);
+        return Auth::user()->can('create', [Connection::class, $this->team()]);
     }
 
-    protected function fillFromProject(): void
+    #[Computed]
+    public function canCreateTask(): bool
     {
-        $this->name = $this->project->name;
-        $this->description = $this->project->description ?? '';
-        $this->connectedSourceId = $this->project->connected_source_id ?? '';
+        return Auth::user()->can('createOnProject', $this->project);
+    }
+
+    /**
+     * @return Collection<int, \App\Models\User>
+     */
+    #[Computed]
+    public function staff(): Collection
+    {
+        return TeamResourceAccess::for(Auth::user(), $this->team())->assignableUsers();
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    protected function projectRelations(): array
+    {
+        $relations = ['client'];
+
+        if (! Auth::user()->isTeamClient($this->team())) {
+            $relations[] = 'connectedSource';
+        }
+
+        return $relations;
     }
 
     protected function team(): Team
@@ -146,89 +106,106 @@ new #[Layout('layouts::app')] #[Title('Project')] class extends Component {
 
 <div class="flex flex-col gap-6">
     <div>
-        <a href="{{ route('projects.index') }}" class="text-sm text-zinc-500 hover:underline" wire:navigate>{{ __('Back to projects') }}</a>
+        <a href="{{ route(auth()->user()->sectionRoute('projects.index')) }}" class="text-sm text-zinc-500 hover:underline" wire:navigate>{{ __('Back to projects') }}</a>
     </div>
 
     <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-            <flux:heading size="xl">{{ $project->name }}</flux:heading>
-            <flux:text class="mt-1 text-sm text-zinc-500">
-                {{ $project->connectedSource->name ?? __('No repository') }}
-            </flux:text>
+            <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">{{ $project->name }}</h1>
+            <p class="mt-1 text-sm text-gray-500 dark:text-dark-300">
+                {{ $project->client->name ?? __('Internal') }}
+                @unless (auth()->user()->isTeamClient(auth()->user()->currentTeam))
+                    · {{ $project->connectedSource->name ?? __('No repository') }}
+                @endunless
+            </p>
         </div>
 
         <div class="flex items-center gap-2">
-            <flux:badge :color="$project->status === \App\Enums\ProjectStatus::Open ? 'lime' : 'zinc'" data-test="project-status">
-                {{ $project->status->label() }}
-            </flux:badge>
+            <x-badge light data-test="project-status" :color="$project->status === \App\Enums\ProjectStatus::Open ? 'green' : 'gray'" :text="$project->status->label()" />
             @if ($this->canManage)
-                <flux:button variant="filled" wire:click="toggleStatus" data-test="toggle-project-status">
-                    {{ $project->status === \App\Enums\ProjectStatus::Open ? __('Close') : __('Reopen') }}
-                </flux:button>
-                <flux:modal.trigger name="delete-project">
-                    <flux:button variant="ghost" data-test="delete-project-page">{{ __('Delete') }}</flux:button>
-                </flux:modal.trigger>
+                <x-button
+                    outline
+                    icon="pencil-square"
+                    :href="route(auth()->user()->sectionRoute('projects.edit'), $project)"
+                    wire:navigate
+                    data-test="edit-project"
+                    :text="__('Edit')"
+                />
+            @endif
+            @if ($this->canManageConnections)
+                <x-button
+                    outline
+                    icon="link"
+                    :href="route(auth()->user()->sectionRoute('projects.integrations'), $project)"
+                    wire:navigate
+                    data-test="project-integrations"
+                    :text="__('Integrations')"
+                />
             @endif
         </div>
     </div>
 
-    @if ($project->description)
-        <div class="rounded-xl border border-zinc-200 bg-white p-4 text-sm dark:border-zinc-700 dark:bg-zinc-900">
-            {{ $project->description }}
+    <div class="flex flex-col gap-3">
+        <div class="flex items-center justify-between gap-3">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ __('Tasks') }}</h2>
+            @if ($this->canCreateTask)
+                <livewire:issues.task-form :project-id="$project->id" :lock-project="true" :key="'task-form-'.$project->id" />
+            @endif
         </div>
-    @endif
-
-    @if ($this->canManage)
-        <form wire:submit="save" class="space-y-4 rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
-            <flux:heading size="lg">{{ __('Edit project') }}</flux:heading>
-            <flux:input wire:model="name" :label="__('Name')" data-test="edit-project-name" />
-            <flux:textarea wire:model="description" :label="__('Description')" rows="3" data-test="edit-project-description" />
-            <flux:select wire:model="connectedSourceId" :label="__('GitHub repository')" data-test="edit-project-repo">
-                <flux:select.option value="">{{ __('No repository') }}</flux:select.option>
-                @foreach ($this->githubSources as $source)
-                    <flux:select.option :value="$source->id">{{ $source->name }}</flux:select.option>
-                @endforeach
-            </flux:select>
-            <flux:text class="text-sm text-zinc-500">{{ __('Changing the repository does not move tasks already published.') }}</flux:text>
-            <flux:button variant="primary" type="submit" data-test="save-project">{{ __('Save project') }}</flux:button>
-        </form>
-
-        <flux:modal name="delete-project" class="max-w-lg">
-            <form wire:submit="delete" class="space-y-6">
-                <div>
-                    <flux:heading size="lg">{{ __('Delete :name?', ['name' => $project->name]) }}</flux:heading>
-                    <flux:subheading>{{ __('Tasks in this project stay in the inbox, without a project.') }}</flux:subheading>
-                </div>
-                <div class="flex justify-end gap-2">
-                    <flux:modal.close>
-                        <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
-                    </flux:modal.close>
-                    <flux:button variant="danger" type="submit" data-test="delete-project-page-confirm">{{ __('Delete') }}</flux:button>
-                </div>
-            </form>
-        </flux:modal>
-    @endif
-
-    @if ($this->canCreateTask)
-        <livewire:issues.task-form :project-id="$project->id" :lock-project="true" :key="'task-form-'.$project->id" />
-    @endif
-
-    <div class="space-y-3">
-        <flux:heading size="lg">{{ __('Tasks') }}</flux:heading>
-        @forelse ($this->tasks as $task)
-            <div class="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 p-4 dark:border-zinc-700" wire:key="project-task-{{ $task->id }}" data-test="project-task">
-                <div>
-                    <a href="{{ route('issues.show', $task) }}" class="font-medium hover:underline" wire:navigate>{{ $task->title }}</a>
-                    <flux:text class="text-sm text-zinc-500">
-                        {{ $task->assignees->pluck('name')->join(', ') ?: __('Unassigned') }}
-                    </flux:text>
-                </div>
-                <flux:badge :color="$task->status === \App\Enums\IssueStatus::Open ? 'lime' : 'zinc'">
-                    {{ $task->status->label() }}
-                </flux:badge>
-            </div>
-        @empty
-            <flux:text>{{ __('No tasks in this project yet.') }}</flux:text>
-        @endforelse
+        <div class="overflow-x-auto rounded-xl border border-zinc-200 dark:border-dark-700">
+            <table class="min-w-full text-sm">
+                <thead class="border-b border-zinc-200 bg-zinc-50 text-left text-xs font-medium tracking-wide text-gray-500 uppercase dark:border-dark-700 dark:bg-dark-800 dark:text-dark-300">
+                    <tr>
+                        <th class="px-3 py-2">{{ __('Task') }}</th>
+                        <th class="px-3 py-2">{{ __('Status') }}</th>
+                        <th class="px-3 py-2">{{ __('Assignee') }}</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-zinc-200 dark:divide-dark-700">
+                    @forelse ($this->tasks as $task)
+                        <tr wire:key="project-task-{{ $task->id }}" data-test="project-task" class="hover:bg-zinc-50 dark:hover:bg-dark-800">
+                            <td class="px-3 py-2">
+                                <a href="{{ route(auth()->user()->sectionRoute('issues.show'), $task) }}" class="font-medium hover:underline" wire:navigate>{{ $task->title }}</a>
+                            </td>
+                            <td class="px-3 py-2 whitespace-nowrap">
+                                <x-badge sm light :color="$task->status === \App\Enums\IssueStatus::Open ? 'green' : 'gray'" :text="$task->status->label()" />
+                            </td>
+                            <td class="px-3 py-2 whitespace-nowrap">
+                                @can('assign', $task)
+                                    <select
+                                        wire:change="assignTask('{{ $task->id }}', $event.target.value)"
+                                        data-test="project-table-assignee"
+                                        class="w-full max-w-48 rounded-md border border-zinc-200 bg-white px-2 py-1 text-sm text-gray-700 dark:border-dark-600 dark:bg-dark-900 dark:text-white"
+                                    >
+                                        <option value="">{{ __('Unassigned') }}</option>
+                                        @if ($task->assignees->count() > 1)
+                                            <option value="multiple" selected disabled>{{ $task->assignees->pluck('name')->join(', ') }}</option>
+                                        @endif
+                                        @foreach ($this->staff as $member)
+                                            <option
+                                                value="{{ $member->id }}"
+                                                @selected($task->assignees->count() === 1 && $task->assignees->first()->id === $member->id)
+                                            >{{ $member->name }}</option>
+                                        @endforeach
+                                    </select>
+                                @else
+                                    <span class="text-gray-500 dark:text-dark-300">{{ $task->assignees->pluck('name')->join(', ') ?: __('Unassigned') }}</span>
+                                @endcan
+                            </td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="3" class="px-3 py-6 text-center text-gray-500 dark:text-dark-300">{{ __('No tasks in this project yet.') }}</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
     </div>
+
+    @if ($project->description)
+        <x-card>
+            <x-markdown :content="$project->description" :allow-html="false" />
+        </x-card>
+    @endif
 </div>

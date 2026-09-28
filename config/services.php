@@ -40,4 +40,13 @@ return [
         'api_version' => env('GITHUB_API_VERSION', '2022-11-28'),
     ],
 
+    'todoist' => [
+        'api_url' => env('TODOIST_API_URL', 'https://api.todoist.com/api/v1'),
+        'sync_from' => env('TODOIST_SYNC_FROM', '2026-07-01'),
+    ],
+
+    'superhuman' => [
+        'api_url' => env('SUPERHUMAN_API_URL', 'https://docs.superhuman.com/apis/v1'),
+    ],
+
 ];

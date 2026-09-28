@@ -25,26 +25,24 @@ new class extends Component {
     }
 }; ?>
 
-<flux:modal name="confirm-user-deletion" :show="$errors->isNotEmpty()" focusable class="max-w-lg">
-    <form method="POST" wire:submit="deleteUser" class="space-y-6">
-        <div>
-            <flux:heading size="lg">{{ __('Are you sure you want to delete your account?') }}</flux:heading>
-
-            <flux:subheading>
+<div>
+    <x-modal id="confirm-user-deletion" :title="__('Are you sure you want to delete your account?')" center size="lg">
+        <form id="confirm-user-deletion-form" method="POST" wire:submit="deleteUser" class="space-y-6">
+            <p class="text-sm text-gray-500 dark:text-dark-300">
                 {{ __('Once your account is deleted, all of its resources and data will be permanently deleted. Please enter your password to confirm you would like to permanently delete your account.') }}
-            </flux:subheading>
-        </div>
+            </p>
 
-        <flux:input wire:model="password" :label="__('Password')" type="password" viewable />
+            <x-password wire:model="password" :label="__('Password')" :rules="[]" />
+        </form>
 
-        <div class="flex justify-end space-x-2 rtl:space-x-reverse">
-            <flux:modal.close>
-                <flux:button variant="filled">{{ __('Cancel') }}</flux:button>
-            </flux:modal.close>
+        <x-slot:footer>
+            <x-button outline :text="__('Cancel')" x-on:click="$tsui.close.modal('confirm-user-deletion')" />
 
-            <flux:button variant="danger" type="submit" data-test="confirm-delete-user-button">
-                {{ __('Delete account') }}
-            </flux:button>
-        </div>
-    </form>
-</flux:modal>
+            <x-button color="red" submit :text="__('Delete account')" form="confirm-user-deletion-form" data-test="confirm-delete-user-button" />
+        </x-slot:footer>
+    </x-modal>
+
+    @if ($errors->isNotEmpty())
+        <div x-init="$tsui.open.modal('confirm-user-deletion')"></div>
+    @endif
+</div>

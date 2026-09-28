@@ -4,14 +4,17 @@ use App\Actions\Issues\CreateIssue;
 use App\Models\Issue;
 use App\Models\Project;
 use App\Models\Team;
-use Flux\Flux;
+use App\Services\TeamResourceAccess;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
+use TallStackUi\Traits\Interactions;
 
 new class extends Component {
+    use Interactions;
+
     public string $projectId = '';
 
     public bool $lockProject = false;
@@ -60,7 +63,11 @@ new class extends Component {
             'publishToGithub' => ['boolean'],
         ]);
 
-        $project = $this->team()->projects()->findOrFail($validated['projectId']);
+        $project = TeamResourceAccess::for(Auth::user(), $this->team())
+            ->scopeProjects($this->team()->projects())
+            ->findOrFail($validated['projectId']);
+
+        Gate::authorize('createOnProject', $project);
 
         $created = $action->handle(
             $this->team(),
@@ -69,7 +76,7 @@ new class extends Component {
             $validated['title'],
             $validated['description'] ?? null,
             $validated['assigneeIds'],
-            $validated['labelNames'],
+            $this->isClientUser() ? [] : $validated['labelNames'],
             (bool) $validated['publishToGithub'],
         );
 
@@ -79,19 +86,19 @@ new class extends Component {
         $this->projectId = $lockedProjectId;
 
         $this->dispatch('task-created');
+        $this->js("\$tsui.close.modal('new-task')");
 
         if ($created->publishError !== null) {
-            Flux::toast(variant: 'warning', text: $created->publishError);
+            $this->toast()->warning($created->publishError)->send();
 
             return;
         }
 
-        Flux::toast(
-            variant: 'success',
-            text: $created->issue->isLinkedToSource()
+        $this->toast()->success(
+            $created->issue->isLinkedToSource()
                 ? __('Task created and published to GitHub.')
                 : __('Task created.'),
-        );
+        )->send();
     }
 
     /**
@@ -100,7 +107,22 @@ new class extends Component {
     #[Computed]
     public function projects(): Collection
     {
-        return $this->team()->projects()->orderBy('name')->get();
+        return TeamResourceAccess::for(Auth::user(), $this->team())
+            ->scopeProjects($this->team()->projects())
+            ->orderBy('name')
+            ->get();
+    }
+
+    #[Computed]
+    public function isScopedUser(): bool
+    {
+        return Auth::user()->isScopedTeamUser($this->team());
+    }
+
+    #[Computed]
+    public function isClientUser(): bool
+    {
+        return Auth::user()->isTeamClient($this->team());
     }
 
     /**
@@ -109,7 +131,7 @@ new class extends Component {
     #[Computed]
     public function members(): Collection
     {
-        return $this->team()->members()->orderBy('name')->get();
+        return TeamResourceAccess::for(Auth::user(), $this->team())->assignableUsers();
     }
 
     /**
@@ -128,8 +150,8 @@ new class extends Component {
             return null;
         }
 
-        return $this->team()
-            ->projects()
+        return TeamResourceAccess::for(Auth::user(), $this->team())
+            ->scopeProjects($this->team()->projects())
             ->with('connectedSource')
             ->find($this->projectId)
             ?->connectedSource
@@ -142,60 +164,74 @@ new class extends Component {
     }
 }; ?>
 
-<div class="space-y-4 rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
-    <flux:heading size="lg">{{ __('New task') }}</flux:heading>
+<div>
+    <x-button icon="plus" x-on:click="$tsui.open.modal('new-task')" data-test="open-new-task" :text="__('New task')" />
 
-    @if ($this->projects->isEmpty())
-        <flux:text>{{ __('Create a project before adding a task.') }}</flux:text>
-    @else
-        <form wire:submit="create" class="space-y-4">
-            <flux:input wire:model="title" :label="__('Title')" data-test="task-title" />
+    <x-modal id="new-task" :title="__('New task')" center size="3xl" scrollable>
+        @if ($errors->isNotEmpty())
+            <div x-init="$tsui.open.modal('new-task')"></div>
+        @endif
 
-            <flux:textarea wire:model="description" :label="__('Description')" rows="4" data-test="task-description" />
+        @if ($this->projects->isEmpty())
+            <p class="text-sm text-gray-500 dark:text-dark-300">{{ __('Create a project before adding a task.') }}</p>
+        @else
+            <form id="new-task-form" wire:submit="create" class="space-y-4">
+                <x-input wire:model="title" :label="__('Title')" data-test="task-title" />
 
-            @unless ($lockProject)
-                <flux:select wire:model.live="projectId" :label="__('Project')" data-test="task-project">
-                    <flux:select.option value="">{{ __('Choose a project') }}</flux:select.option>
-                    @foreach ($this->projects as $project)
-                        <flux:select.option :value="$project->id" wire:key="task-project-{{ $project->id }}">{{ $project->name }}</flux:select.option>
-                    @endforeach
-                </flux:select>
-            @endunless
+                <x-editor markdown wire:model="description" :label="__('Description')" min-height="8rem" data-test="task-description" />
 
-            @if ($this->members->isNotEmpty())
-                <div class="space-y-2">
-                    <flux:text class="text-sm font-medium">{{ __('Assignees') }}</flux:text>
-                    @foreach ($this->members as $member)
-                        <label class="flex items-center gap-2 text-sm" wire:key="task-assignee-{{ $member->id }}">
-                            <input type="checkbox" value="{{ $member->id }}" wire:model="assigneeIds" data-test="task-assignee">
-                            <span>{{ $member->name }}</span>
-                        </label>
-                    @endforeach
-                </div>
-            @endif
+                @unless ($lockProject)
+                    <x-select.native wire:model.live="projectId" :label="__('Project')" data-test="task-project">
+                        <option value="">{{ __('Choose a project') }}</option>
+                        @foreach ($this->projects as $project)
+                            <option value="{{ $project->id }}" wire:key="task-project-{{ $project->id }}">{{ $project->name }}</option>
+                        @endforeach
+                    </x-select.native>
+                @endunless
 
-            @if ($this->labels->isNotEmpty())
-                <div class="space-y-2">
-                    <flux:text class="text-sm font-medium">{{ __('Labels') }}</flux:text>
-                    <div class="flex flex-wrap gap-2">
-                        @foreach ($this->labels as $label)
-                            <label class="flex items-center gap-2 text-sm" wire:key="task-label-{{ $label->id }}">
-                                <input type="checkbox" value="{{ $label->name }}" wire:model="labelNames" data-test="task-label">
-                                <span>{{ $label->name }}</span>
+                @if ($this->members->isNotEmpty())
+                    <div class="space-y-2">
+                        <p class="text-sm font-medium text-gray-500 dark:text-dark-300">{{ __('Assignees') }}</p>
+                        <p class="text-sm text-gray-500 dark:text-dark-300">{{ $this->isClientUser ? __('The account owner and people on your projects.') : __('You and your employees.') }}</p>
+                        @foreach ($this->members as $member)
+                            <label class="flex items-center gap-2 text-sm" wire:key="task-assignee-{{ $member->id }}">
+                                <input type="checkbox" value="{{ $member->id }}" wire:model="assigneeIds" data-test="task-assignee">
+                                <span>{{ $member->name }}</span>
                             </label>
                         @endforeach
                     </div>
-                </div>
-            @endif
+                @endif
 
-            @if ($this->linkedRepoName)
-                <label class="flex items-center gap-2 text-sm">
-                    <input type="checkbox" wire:model="publishToGithub" data-test="publish-to-github">
-                    <span>{{ __('Also create a GitHub issue on :repo', ['repo' => $this->linkedRepoName]) }}</span>
-                </label>
-            @endif
+                @if (! $this->isClientUser && $this->labels->isNotEmpty())
+                    <div class="space-y-2">
+                        <p class="text-sm font-medium text-gray-500 dark:text-dark-300">{{ __('Labels') }}</p>
+                        <div class="flex flex-wrap gap-2">
+                            @foreach ($this->labels as $label)
+                                <label class="flex items-center gap-2 text-sm" wire:key="task-label-{{ $label->id }}">
+                                    <input type="checkbox" value="{{ $label->name }}" wire:model="labelNames" data-test="task-label">
+                                    <span>{{ $label->name }}</span>
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
 
-            <flux:button variant="primary" type="submit" data-test="create-task">{{ __('Add task') }}</flux:button>
-        </form>
-    @endif
+                @if ($this->linkedRepoName && ! $this->isScopedUser)
+                    <label class="flex items-center gap-2 text-sm">
+                        <input type="checkbox" wire:model="publishToGithub" data-test="publish-to-github">
+                        <span>{{ __('Also create a GitHub issue on :repo', ['repo' => $this->linkedRepoName]) }}</span>
+                    </label>
+                @endif
+            </form>
+        @endif
+
+        <x-slot:footer>
+            <div class="flex w-full justify-end gap-2">
+                <x-button outline x-on:click="$tsui.close.modal('new-task')" :text="__('Cancel')" />
+                @if ($this->projects->isNotEmpty())
+                    <x-button submit form="new-task-form" data-test="create-task" :text="__('Add task')" />
+                @endif
+            </div>
+        </x-slot:footer>
+    </x-modal>
 </div>

@@ -25,10 +25,12 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, TeamInvitation> $invitations
  * @property-read Collection<int, Membership> $memberships
  * @property-read Collection<int, User> $members
+ * @property-read Collection<int, User> $staff
  * @property-read Collection<int, Connection> $connections
  * @property-read Collection<int, Issue> $issues
  * @property-read Collection<int, Label> $labels
  * @property-read Collection<int, Project> $projects
+ * @property-read Collection<int, Client> $clients
  */
 #[Fillable(['name', 'slug', 'is_personal'])]
 class Team extends Model
@@ -77,6 +79,17 @@ class Team extends Model
             ->using(Membership::class)
             ->withPivot(['role'])
             ->withTimestamps();
+    }
+
+    /**
+     * Owner, admins, and employees who can be assigned to tasks.
+     *
+     * @return BelongsToMany<User, $this, Membership, 'pivot'>
+     */
+    public function staff(): BelongsToMany
+    {
+        return $this->members()
+            ->wherePivot('role', '!=', TeamRole::Client->value);
     }
 
     /**
@@ -132,6 +145,14 @@ class Team extends Model
     }
 
     /**
+     * @return HasMany<Client, $this>
+     */
+    public function clients(): HasMany
+    {
+        return $this->hasMany(Client::class);
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
@@ -149,5 +170,29 @@ class Team extends Model
     public function getRouteKeyName(): string
     {
         return 'slug';
+    }
+
+    /**
+     * Resolve a team slug, or a client slug for the signed-in client.
+     */
+    public function resolveRouteBinding($value, $field = null)
+    {
+        $team = $this->where($field ?? $this->getRouteKeyName(), $value)->first();
+
+        if ($team !== null) {
+            return $team;
+        }
+
+        $userId = auth()->id();
+
+        if ($userId === null) {
+            return null;
+        }
+
+        return Client::query()
+            ->where('slug', $value)
+            ->whereHas('users', fn ($users) => $users->where('users.id', $userId))
+            ->first()
+            ?->team;
     }
 }

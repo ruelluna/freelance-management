@@ -11,12 +11,13 @@ class ConnectionPolicy
 {
     public function viewAny(User $user, Team $team): bool
     {
-        return $user->belongsToTeam($team);
+        return $user->belongsToTeam($team)
+            && $user->hasTeamPermission($team, TeamPermission::ManageConnections);
     }
 
     public function view(User $user, Connection $connection): bool
     {
-        return $user->belongsToTeam($connection->team);
+        return $user->hasTeamPermission($connection->team, TeamPermission::ManageConnections);
     }
 
     public function create(User $user, Team $team): bool

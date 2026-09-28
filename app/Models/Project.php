@@ -10,12 +10,14 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
  * @property string $id
  * @property int $team_id
+ * @property string|null $client_id
  * @property string|null $connected_source_id
  * @property string $name
  * @property string|null $description
@@ -23,10 +25,13 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read Team $team
+ * @property-read Client|null $client
  * @property-read ConnectedSource|null $connectedSource
+ * @property-read Collection<int, Connection> $connections
  * @property-read Collection<int, Issue> $issues
+ * @property-read Collection<int, User> $members
  */
-#[Fillable(['team_id', 'connected_source_id', 'name', 'description', 'status'])]
+#[Fillable(['team_id', 'client_id', 'connected_source_id', 'name', 'description', 'status'])]
 class Project extends Model
 {
     /** @use HasFactory<ProjectFactory> */
@@ -48,6 +53,14 @@ class Project extends Model
     }
 
     /**
+     * @return BelongsTo<Client, $this>
+     */
+    public function client(): BelongsTo
+    {
+        return $this->belongsTo(Client::class);
+    }
+
+    /**
      * @return BelongsTo<ConnectedSource, $this>
      */
     public function connectedSource(): BelongsTo
@@ -56,11 +69,27 @@ class Project extends Model
     }
 
     /**
+     * @return HasMany<Connection, $this>
+     */
+    public function connections(): HasMany
+    {
+        return $this->hasMany(Connection::class);
+    }
+
+    /**
      * @return HasMany<Issue, $this>
      */
     public function issues(): HasMany
     {
         return $this->hasMany(Issue::class);
+    }
+
+    /**
+     * @return BelongsToMany<User, $this>
+     */
+    public function members(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'project_user')->withTimestamps();
     }
 
     /**

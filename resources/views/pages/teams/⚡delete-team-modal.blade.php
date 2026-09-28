@@ -3,15 +3,17 @@
 use App\Data\UserTeam;
 use App\Models\Team;
 use App\Models\User;
-use Flux\Flux;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
+use TallStackUi\Traits\Interactions;
 
 new class extends Component {
+    use Interactions;
+
     public Team $team;
 
     public string $deleteName = '';
@@ -61,7 +63,7 @@ new class extends Component {
             $user->switchTeam($fallbackTeam);
         }
 
-        Flux::toast(variant: 'success', text: __('Team deleted.'));
+        $this->toast()->success(__('Team deleted.'))->send();
 
         $this->redirectRoute('teams.index', navigate: true);
     }
@@ -76,26 +78,23 @@ new class extends Component {
     }
 }; ?>
 
-<flux:modal name="delete-team" :show="$errors->isNotEmpty()" focusable class="max-w-lg">
-    <form wire:submit="deleteTeam" class="space-y-6">
-        <div>
-            <flux:heading size="lg">{{ __('Are you sure?') }}</flux:heading>
-            <flux:subheading>
-                {{ __('This action cannot be undone. This will permanently delete the team ":name".', ['name' => $team->name]) }}
-            </flux:subheading>
-        </div>
+<x-modal id="delete-team" :title="__('Are you sure?')" center size="lg">
+    @if ($errors->isNotEmpty())
+        <div x-init="$tsui.open.modal('delete-team')"></div>
+    @endif
 
-        <div class="space-y-4">
-            <flux:input wire:model="deleteName" :label="$this->deleteConfirmLabel" required data-test="delete-team-name" />
-        </div>
+    <form id="delete-team-form" wire:submit="deleteTeam" class="space-y-6">
+        <p class="text-sm text-gray-500 dark:text-dark-300">
+            {{ __('This action cannot be undone. This will permanently delete the team ":name".', ['name' => $team->name]) }}
+        </p>
 
-        <div class="flex justify-end space-x-2 rtl:space-x-reverse">
-            <flux:modal.close>
-                <flux:button variant="filled">{{ __('Cancel') }}</flux:button>
-            </flux:modal.close>
-            <flux:button variant="danger" type="submit" data-test="delete-team-confirm">
-                {{ __('Delete team') }}
-            </flux:button>
-        </div>
+        <x-input wire:model="deleteName" :label="$this->deleteConfirmLabel" required data-test="delete-team-name" />
     </form>
-</flux:modal>
+
+    <x-slot:footer>
+        <div class="flex w-full justify-end gap-2">
+            <x-button outline x-on:click="$tsui.close.modal('delete-team')" :text="__('Cancel')" />
+            <x-button submit form="delete-team-form" color="red" data-test="delete-team-confirm" :text="__('Delete team')" />
+        </div>
+    </x-slot:footer>
+</x-modal>

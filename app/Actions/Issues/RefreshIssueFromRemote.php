@@ -24,7 +24,7 @@ class RefreshIssueFromRemote
         try {
             $issue->loadMissing('connectedSource.connection', 'connection');
 
-            if ($issue->connection_id === null || $issue->number === null) {
+            if ($issue->connection_id === null || ($issue->number === null && blank($issue->external_id))) {
                 return false;
             }
 

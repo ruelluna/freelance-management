@@ -4,7 +4,6 @@ use App\Data\TeamPermissions;
 use App\Enums\TeamRole;
 use App\Models\Team;
 use App\Rules\TeamName;
-use Flux\Flux;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -12,9 +11,12 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
+use TallStackUi\Traits\Interactions;
 
 new class extends Component
 {
+    use Interactions;
+
     public Team $teamModel;
 
     public string $teamName = '';
@@ -57,7 +59,7 @@ new class extends Component
 
         $this->populateTeamData();
 
-        Flux::toast(variant: 'success', text: __('Team updated.'));
+        $this->toast()->success(__('Team updated.'))->send();
 
         $this->redirectRoute('teams.edit', ['team' => $this->teamModel->fresh()->slug], navigate: true);
     }
@@ -77,7 +79,7 @@ new class extends Component
 
         $this->populateTeamData();
 
-        Flux::toast(variant: 'success', text: __('Member role updated.'));
+        $this->toast()->success(__('Member role updated.'))->send();
     }
 
     private function populateTeamData(): void
@@ -140,7 +142,7 @@ new class extends Component
 <section class="w-full">
     @include('partials.settings-heading')
 
-    <flux:heading class="sr-only">{{ __('Teams') }}</flux:heading>
+    <h1 class="sr-only">{{ __('Teams') }}</h1>
 
     <x-pages::settings.layout :heading="__('Teams')" :subheading="__('Manage your team settings')">
         <div class="space-y-10">
@@ -148,16 +150,14 @@ new class extends Component
                 @if ($this->permissions->canUpdateTeam)
                     <div class="space-y-4">
                         <form wire:submit="updateTeam" class="space-y-6">
-                            <flux:input wire:model="teamName" :label="__('Team name')" required data-test="team-name-input" />
+                            <x-input wire:model="teamName" :label="__('Team name')" required data-test="team-name-input" />
 
-                            <flux:button variant="primary" type="submit" data-test="team-save-button">
-                                {{ __('Save') }}
-                            </flux:button>
+                            <x-button submit data-test="team-save-button" :text="__('Save')" />
                         </form>
                     </div>
                 @else
                     <div>
-                        <flux:heading>{{ $teamData['name'] }}</flux:heading>
+                        <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ $teamData['name'] }}</h2>
                     </div>
                 @endif
             </div>
@@ -165,69 +165,61 @@ new class extends Component
             <div class="space-y-6">
                 <div class="flex items-center justify-between">
                     <div>
-                        <flux:heading>{{ __('Team members') }}</flux:heading>
+                        <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ __('Team members') }}</h2>
                         @if ($this->permissions->canAddMember || $this->permissions->canUpdateMember || $this->permissions->canRemoveMember)
-                            <flux:subheading>{{ __('Manage who belongs to this team') }}</flux:subheading>
+                            <p class="text-sm text-gray-500 dark:text-dark-300">{{ __('Manage who belongs to this team') }}</p>
                         @endif
                     </div>
 
                     @if ($this->permissions->canCreateInvitation)
-                        <flux:modal.trigger name="invite-member">
-                            <flux:button variant="primary" icon="user-plus" data-test="invite-member-button">
-                                {{ __('Invite member') }}
-                            </flux:button>
-                        </flux:modal.trigger>
+                        <x-button icon="user-plus" x-on:click="$tsui.open.modal('invite-member')" data-test="invite-member-button" :text="__('Invite member')" />
                     @endif
                 </div>
 
                 <div class="space-y-3">
                     @foreach ($members as $member)
-                        <div class="flex items-center justify-between rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900" data-test="member-row">
-                            <div class="flex items-center gap-4">
-                                <flux:avatar :name="$member['name']" :initials="$member['initials']" />
-                                <div>
-                                    <div class="font-medium">{{ $member['name'] }}</div>
-                                    <flux:text class="text-sm text-zinc-500 dark:text-zinc-400">{{ $member['email'] }}</flux:text>
+                        <x-card>
+                            <div class="flex items-center justify-between" data-test="member-row">
+                                <div class="flex items-center gap-4">
+                                    <x-avatar sm :text="$member['initials']" />
+                                    <div>
+                                        <div class="font-medium">{{ $member['name'] }}</div>
+                                        <p class="text-sm text-gray-500 dark:text-dark-300">{{ $member['email'] }}</p>
+                                    </div>
                                 </div>
-                            </div>
 
-                            <div class="flex items-center gap-2">
-                                @if ($member['role'] !== 'owner' && $this->permissions->canUpdateMember)
-                                    <flux:dropdown position="bottom" align="end">
-                                        <flux:button variant="outline" size="sm" icon:trailing="chevron-down" data-test="member-role-trigger">
-                                            {{ $member['role_label'] }}
-                                        </flux:button>
-                                        <flux:menu>
+                                <div class="flex items-center gap-2">
+                                    @if ($member['role'] !== 'owner' && $this->permissions->canUpdateMember)
+                                        <x-dropdown position="bottom-end">
+                                            <x-slot:action>
+                                                <x-button outline sm position="right" icon="chevron-down" data-test="member-role-trigger" x-on:click="show = ! show" :text="$member['role_label']" />
+                                            </x-slot:action>
+
                                             @foreach ($availableRoles as $role)
-                                                <flux:menu.item
-                                                    as="button"
-                                                    type="button"
+                                                <x-dropdown.items
+                                                    :text="$role['label']"
                                                     wire:click="updateMember({{ $member['id'] }}, '{{ $role['value'] }}')"
                                                     data-test="member-role-option"
-                                                >
-                                                    {{ $role['label'] }}
-                                                </flux:menu.item>
+                                                />
                                             @endforeach
-                                        </flux:menu>
-                                    </flux:dropdown>
-                                @else
-                                    <flux:badge color="zinc">{{ $member['role_label'] }}</flux:badge>
-                                @endif
+                                        </x-dropdown>
+                                    @else
+                                        <x-badge color="gray" light :text="$member['role_label']" />
+                                    @endif
 
-                                @if ($member['role'] !== 'owner' && $this->permissions->canRemoveMember)
-                                    <flux:modal.trigger name="remove-member-{{ $member['id'] }}">
-                                        <flux:tooltip :content="__('Remove member')">
-                                            <flux:button
-                                                variant="ghost"
-                                                size="sm"
-                                                icon="x-mark"
-                                                data-test="member-remove-button"
-                                            />
-                                        </flux:tooltip>
-                                    </flux:modal.trigger>
-                                @endif
+                                    @if ($member['role'] !== 'owner' && $this->permissions->canRemoveMember)
+                                        <x-button
+                                            outline
+                                            sm
+                                            icon="x-mark"
+                                            :tooltip="__('Remove member')"
+                                            x-on:click="$tsui.open.modal('remove-member-{{ $member['id'] }}')"
+                                            data-test="member-remove-button"
+                                        />
+                                    @endif
+                                </div>
                             </div>
-                        </div>
+                        </x-card>
 
                         @if ($member['role'] !== 'owner' && $this->permissions->canRemoveMember)
                             <livewire:pages::teams.remove-member-modal
@@ -245,36 +237,36 @@ new class extends Component
             @if (count($invitations) > 0)
                 <div class="space-y-6">
                     <div>
-                        <flux:heading>{{ __('Pending invitations') }}</flux:heading>
-                        <flux:subheading>{{ __('Invitations that have not been accepted yet') }}</flux:subheading>
+                        <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ __('Pending invitations') }}</h2>
+                        <p class="text-sm text-gray-500 dark:text-dark-300">{{ __('Invitations that have not been accepted yet') }}</p>
                     </div>
 
                     <div class="space-y-3">
                         @foreach ($invitations as $invitation)
-                            <div class="flex items-center justify-between rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900" data-test="invitation-row">
-                                <div class="flex items-center gap-4">
-                                    <div class="flex size-10 items-center justify-center rounded-full bg-zinc-100 dark:bg-zinc-800">
-                                        <flux:icon name="envelope" class="text-zinc-500" />
+                            <x-card>
+                                <div class="flex items-center justify-between" data-test="invitation-row">
+                                    <div class="flex items-center gap-4">
+                                        <div class="flex size-10 items-center justify-center rounded-full bg-gray-100 dark:bg-dark-700">
+                                            <x-icon name="envelope" class="text-gray-500" />
+                                        </div>
+                                        <div>
+                                            <div class="font-medium">{{ $invitation['email'] }}</div>
+                                            <p class="text-sm text-gray-500 dark:text-dark-300">{{ $invitation['role_label'] }}</p>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <div class="font-medium">{{ $invitation['email'] }}</div>
-                                        <flux:text class="text-sm text-zinc-500 dark:text-zinc-400">{{ $invitation['role_label'] }}</flux:text>
-                                    </div>
-                                </div>
 
-                                @if ($this->permissions->canCancelInvitation)
-                                    <flux:modal.trigger name="cancel-invitation-{{ $invitation['code'] }}">
-                                        <flux:tooltip :content="__('Cancel invitation')">
-                                            <flux:button
-                                                variant="ghost"
-                                                size="sm"
-                                                icon="x-mark"
-                                                data-test="invitation-cancel-button"
-                                            />
-                                        </flux:tooltip>
-                                    </flux:modal.trigger>
-                                @endif
-                            </div>
+                                    @if ($this->permissions->canCancelInvitation)
+                                        <x-button
+                                            outline
+                                            sm
+                                            icon="x-mark"
+                                            :tooltip="__('Cancel invitation')"
+                                            x-on:click="$tsui.open.modal('cancel-invitation-{{ $invitation['code'] }}')"
+                                            data-test="invitation-cancel-button"
+                                        />
+                                    @endif
+                                </div>
+                            </x-card>
                             @if ($this->permissions->canCancelInvitation)
                                 <livewire:pages::teams.cancel-invitation-modal
                                     :team="$teamModel"
@@ -292,8 +284,8 @@ new class extends Component
             @if ($this->permissions->canDeleteTeam && ! $teamData['is_personal'])
                 <div class="space-y-6">
                     <div>
-                        <flux:heading>{{ __('Delete team') }}</flux:heading>
-                        <flux:subheading>{{ __('Permanently delete your team') }}</flux:subheading>
+                        <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ __('Delete team') }}</h2>
+                        <p class="text-sm text-gray-500 dark:text-dark-300">{{ __('Permanently delete your team') }}</p>
                     </div>
 
                     <div class="space-y-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700 dark:border-red-200/10 dark:bg-red-900/20 dark:text-red-100">
@@ -302,11 +294,7 @@ new class extends Component
                             <p class="text-sm">{{ __('Please proceed with caution, this cannot be undone.') }}</p>
                         </div>
 
-                        <flux:modal.trigger name="delete-team">
-                            <flux:button variant="danger" data-test="delete-team-button">
-                                {{ __('Delete team') }}
-                            </flux:button>
-                        </flux:modal.trigger>
+                        <x-button color="red" x-on:click="$tsui.open.modal('delete-team')" data-test="delete-team-button" :text="__('Delete team')" />
                     </div>
                 </div>
             @endif

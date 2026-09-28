@@ -22,6 +22,16 @@ class EnsureTeamMembership
 
         abort_if(! $user || ! $team || ! $user->belongsToTeam($team), 403);
 
+        $segment = $request->route('current_team');
+
+        if (is_string($segment) && $user->isTeamClient($team)) {
+            $portal = $user->portalSlug($team);
+
+            if ($portal !== null && $segment !== $portal) {
+                return redirect($this->clientPath($segment, $portal, $request));
+            }
+        }
+
         $this->ensureTeamMemberHasRequiredRole($user, $team, $minimumRole);
 
         if ($request->route('current_team') && ! $user->isCurrentTeam($team)) {
@@ -59,10 +69,37 @@ class EnsureTeamMembership
     {
         $team = $request->route('current_team') ?? $request->route('team');
 
-        if (is_string($team)) {
-            $team = Team::where('slug', $team)->first();
+        if ($team instanceof Team) {
+            return $team;
         }
 
-        return $team;
+        if (! is_string($team)) {
+            return null;
+        }
+
+        $matchedTeam = Team::query()->where('slug', $team)->first();
+
+        if ($matchedTeam !== null) {
+            return $matchedTeam;
+        }
+
+        return $request->user()
+            ?->clients()
+            ->where('clients.slug', $team)
+            ->first()
+            ?->team;
+    }
+
+    private function clientPath(string $from, string $to, Request $request): string
+    {
+        $path = preg_replace(
+            '#^'.preg_quote($from, '#').'(?=/|$)#',
+            $to,
+            ltrim($request->path(), '/'),
+            1,
+        );
+        $query = $request->getQueryString();
+
+        return '/'.$path.($query === null ? '' : '?'.$query);
     }
 }

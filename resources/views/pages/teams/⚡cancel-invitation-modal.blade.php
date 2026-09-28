@@ -1,11 +1,13 @@
 <?php
 
 use App\Models\Team;
-use Flux\Flux;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Component;
+use TallStackUi\Traits\Interactions;
 
 new class extends Component {
+    use Interactions;
+
     public Team $team;
 
     public string $invitationCode = '';
@@ -41,25 +43,22 @@ new class extends Component {
 
         $this->dispatch('close-modal', name: $this->modalName);
 
-        Flux::toast(variant: 'success', text: __('Invitation cancelled.'));
+        $this->toast()->success(__('Invitation cancelled.'))->send();
 
         $this->redirectRoute('teams.edit', ['team' => $this->team->slug], navigate: true);
     }
 }; ?>
 
-<flux:modal :name="$modalName" focusable class="max-w-lg">
-    <form wire:submit="cancelInvitation" class="space-y-6">
-        <div>
-            <flux:heading size="lg">{{ __('Cancel invitation') }}</flux:heading>
-            <flux:subheading>
-                {{ __('Are you sure you want to cancel the invitation for :email?', ['email' => $invitationEmail]) }}
-            </flux:subheading>
-        </div>
-        <div class="flex justify-end space-x-2 rtl:space-x-reverse">
-            <flux:modal.close>
-                <flux:button variant="filled">{{ __('Keep invitation') }}</flux:button>
-            </flux:modal.close>
-            <flux:button variant="danger" type="submit" data-test="cancel-invitation-confirm">{{ __('Cancel invitation') }}</flux:button>
-        </div>
+<x-modal :id="$modalName" :title="__('Cancel invitation')" center size="lg">
+    <form id="cancel-invitation-form-{{ $modalName }}" wire:submit="cancelInvitation">
+        <p class="text-sm text-gray-500 dark:text-dark-300">
+            {{ __('Are you sure you want to cancel the invitation for :email?', ['email' => $invitationEmail]) }}
+        </p>
     </form>
-</flux:modal>
+    <x-slot:footer>
+        <div class="flex w-full justify-end gap-2">
+            <x-button outline x-on:click="$tsui.close.modal('{{ $modalName }}')" :text="__('Keep invitation')" />
+            <x-button submit form="cancel-invitation-form-{{ $modalName }}" color="red" data-test="cancel-invitation-confirm" :text="__('Cancel invitation')" />
+        </div>
+    </x-slot:footer>
+</x-modal>

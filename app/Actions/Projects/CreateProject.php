@@ -3,8 +3,6 @@
 namespace App\Actions\Projects;
 
 use App\Enums\ProjectStatus;
-use App\Enums\Provider;
-use App\Models\ConnectedSource;
 use App\Models\Project;
 use App\Models\Team;
 use Illuminate\Support\Facades\Log;
@@ -12,13 +10,17 @@ use Illuminate\Validation\ValidationException;
 
 class CreateProject
 {
-    public function handle(Team $team, string $name, ?string $description, ?string $connectedSourceId): Project
-    {
+    public function handle(
+        Team $team,
+        string $name,
+        ?string $description,
+        ?string $clientId = null,
+    ): Project {
         $project = $team->projects()->create([
             'name' => $name,
             'description' => filled($description) ? $description : null,
             'status' => ProjectStatus::Open,
-            'connected_source_id' => $this->githubSourceId($team, $connectedSourceId),
+            'client_id' => $this->clientId($team, $clientId),
         ]);
 
         Log::info('Project created', [
@@ -29,24 +31,20 @@ class CreateProject
         return $project;
     }
 
-    protected function githubSourceId(Team $team, ?string $connectedSourceId): ?string
+    protected function clientId(Team $team, ?string $clientId): ?string
     {
-        if (blank($connectedSourceId)) {
+        if (blank($clientId)) {
             return null;
         }
 
-        $source = ConnectedSource::query()
-            ->whereKey($connectedSourceId)
-            ->where('team_id', $team->id)
-            ->whereHas('connection', fn ($query) => $query->where('provider', Provider::Github))
-            ->first();
+        $client = $team->clients()->whereKey($clientId)->first();
 
-        if ($source === null) {
+        if ($client === null) {
             throw ValidationException::withMessages([
-                'connectedSourceId' => __('Choose a GitHub repository on this team.'),
+                'clientId' => [__('Choose a client on this team.')],
             ]);
         }
 
-        return $source->id;
+        return $client->id;
     }
 }

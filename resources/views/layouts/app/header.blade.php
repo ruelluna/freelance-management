@@ -1,89 +1,54 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="dark">
+<html
+    lang="{{ str_replace('_', '-', app()->getLocale()) }}"
+    x-data="tallstackui_darkTheme({ default: 'dark' })"
+    x-bind:class="{ dark: darkTheme }"
+>
     <head>
         @include('partials.head')
     </head>
-    <body class="min-h-screen bg-white dark:bg-zinc-800">
-        <flux:header container class="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
-            <flux:sidebar.toggle class="lg:hidden mr-2" icon="bars-2" inset="left" />
+    <body>
+        <x-layout>
+            <x-slot:menu>
+                <x-side-bar navigate thin-scroll>
+                    <x-slot:brand>
+                        <div class="px-4 py-5">
+                            <x-app-logo />
+                        </div>
+                    </x-slot:brand>
 
-            <x-app-logo href="{{ route('dashboard') }}" wire:navigate />
+                    <x-side-bar.separator :text="__('Platform')" />
+                    <x-nav.platform-links />
+                </x-side-bar>
+            </x-slot:menu>
 
-            <flux:navbar class="-mb-px max-lg:hidden">
-                <flux:navbar.item icon="layout-grid" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
-                    {{ __('Dashboard') }}
-                </flux:navbar.item>
-                <flux:navbar.item icon="folder" :href="route('projects.index')" :current="request()->routeIs('projects.*')" wire:navigate>
-                    {{ __('Projects') }}
-                </flux:navbar.item>
-                <flux:navbar.item icon="queue-list" :href="route('issues.index')" :current="request()->routeIs('issues.*')" wire:navigate>
-                    {{ __('Tasks') }}
-                </flux:navbar.item>
-                <flux:navbar.item icon="tag" :href="route('labels.index')" :current="request()->routeIs('labels.*')" wire:navigate>
-                    {{ __('Labels') }}
-                </flux:navbar.item>
-                <flux:navbar.item icon="folder-git-2" :href="route('connections.index')" :current="request()->routeIs('connections.*')" wire:navigate>
-                    {{ __('Connections') }}
-                </flux:navbar.item>
-            </flux:navbar>
+            <x-slot:header>
+                <x-layout.header>
+                    <x-slot:left>
+                        <div class="hidden items-center gap-4 lg:flex">
+                            <x-nav.platform-navbar-items />
+                        </div>
+                    </x-slot:left>
+                    <x-slot:right>
+                        <x-desktop-user-menu :showTeam="false" />
+                        @unless (auth()->user()->isScopedTeamUser(auth()->user()->currentTeam))
+                            <div class="max-lg:hidden">
+                                <livewire:team-switcher />
+                            </div>
+                        @endunless
+                    </x-slot:right>
+                </x-layout.header>
+            </x-slot:header>
 
-            <flux:spacer />
+            {{ $slot }}
+        </x-layout>
 
-            <flux:navbar class="me-1.5 space-x-0.5 rtl:space-x-reverse py-0!">
-                <flux:tooltip :content="__('Search')" position="bottom">
-                    <flux:navbar.item class="!h-10 [&>div>svg]:size-5" icon="magnifying-glass" href="#" :label="__('Search')" />
-                </flux:tooltip>
-            </flux:navbar>
-
-            <x-desktop-user-menu :showTeam="false" />
-
-            <div class="max-lg:hidden">
-                <livewire:team-switcher />
-            </div>
-        </flux:header>
-
-        <!-- Mobile Menu -->
-        <flux:sidebar collapsible="mobile" sticky class="lg:hidden border-e border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
-            <flux:sidebar.header>
-                <x-app-logo :sidebar="true" href="{{ route('dashboard') }}" wire:navigate />
-                <flux:sidebar.collapse class="in-data-flux-sidebar-on-desktop:not-in-data-flux-sidebar-collapsed-desktop:-mr-2" />
-            </flux:sidebar.header>
-
-            <livewire:team-switcher />
-
-            <flux:sidebar.nav>
-                <flux:sidebar.group :heading="__('Platform')">
-                    <flux:sidebar.item icon="layout-grid" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
-                        {{ __('Dashboard')  }}
-                    </flux:sidebar.item>
-                    <flux:sidebar.item icon="folder" :href="route('projects.index')" :current="request()->routeIs('projects.*')" wire:navigate>
-                        {{ __('Projects') }}
-                    </flux:sidebar.item>
-                    <flux:sidebar.item icon="queue-list" :href="route('issues.index')" :current="request()->routeIs('issues.*')" wire:navigate>
-                        {{ __('Tasks') }}
-                    </flux:sidebar.item>
-                    <flux:sidebar.item icon="tag" :href="route('labels.index')" :current="request()->routeIs('labels.*')" wire:navigate>
-                        {{ __('Labels') }}
-                    </flux:sidebar.item>
-                    <flux:sidebar.item icon="folder-git-2" :href="route('connections.index')" :current="request()->routeIs('connections.*')" wire:navigate>
-                        {{ __('Connections') }}
-                    </flux:sidebar.item>
-                </flux:sidebar.group>
-            </flux:sidebar.nav>
-
-            <flux:spacer />
-        </flux:sidebar>
-
-        {{ $slot }}
-
-        <livewire:create-team-modal />
+        @can('create', App\Models\Team::class)
+            <livewire:create-team-modal />
+        @endcan
 
         @persist('toast')
-            <flux:toast.group>
-                <flux:toast />
-            </flux:toast.group>
+            <x-toast />
         @endpersist
-
-        @fluxScripts
     </body>
 </html>

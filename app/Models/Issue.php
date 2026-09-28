@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\IssueStatus;
+use App\Enums\Provider;
 use Database\Factories\IssueFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
@@ -20,6 +21,7 @@ use Illuminate\Support\Carbon;
  * @property string $id
  * @property int $team_id
  * @property string|null $project_id
+ * @property string|null $client_id
  * @property int|null $created_by
  * @property string|null $connection_id
  * @property string|null $connected_source_id
@@ -36,6 +38,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $updated_at
  * @property-read Team $team
  * @property-read Project|null $project
+ * @property-read Client|null $client
  * @property-read User|null $creator
  * @property-read Connection|null $connection
  * @property-read ConnectedSource|null $connectedSource
@@ -46,6 +49,7 @@ use Illuminate\Support\Carbon;
 #[Fillable([
     'team_id',
     'project_id',
+    'client_id',
     'created_by',
     'connection_id',
     'connected_source_id',
@@ -85,6 +89,26 @@ class Issue extends Model
     public function project(): BelongsTo
     {
         return $this->belongsTo(Project::class);
+    }
+
+    /**
+     * @return BelongsTo<Client, $this>
+     */
+    public function client(): BelongsTo
+    {
+        return $this->belongsTo(Client::class);
+    }
+
+    public function sourceLabel(): string
+    {
+        $connection = $this->getRelationValue('connection');
+
+        return match ($connection?->provider) {
+            Provider::Todoist => __('Todoist'),
+            Provider::Superhuman => __('Coda'),
+            Provider::Github => __('GitHub'),
+            default => __('Manual'),
+        };
     }
 
     /**

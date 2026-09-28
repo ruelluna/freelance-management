@@ -25,7 +25,7 @@ test('an owner can assign a team member to an issue', function () {
 
     $this->actingAs($owner);
 
-    Livewire::test('pages::issues.show', ['issue' => $issue])
+    Livewire::test('pages::issues.edit', ['issue' => $issue])
         ->set('assigneeIds', [$developer->id])
         ->call('saveAssignees')
         ->assertHasNoErrors();
@@ -48,9 +48,11 @@ test('a member can assign a team member to an issue', function () {
         'team_id' => $team->id,
     ]);
 
+    $issue->assignees()->attach($developer);
+
     $this->actingAs($developer);
 
-    Livewire::test('pages::issues.show', ['issue' => $issue])
+    Livewire::test('pages::issues.edit', ['issue' => $issue])
         ->set('assigneeIds', [$developer->id])
         ->call('saveAssignees')
         ->assertHasNoErrors();
@@ -78,7 +80,7 @@ test('a member can update an issue assigned to them', function () {
 
     $this->actingAs($developer);
 
-    Livewire::test('pages::issues.show', ['issue' => $issue])
+    Livewire::test('pages::issues.edit', ['issue' => $issue])
         ->call('toggleStatus')
         ->assertHasNoErrors();
 
@@ -98,9 +100,8 @@ test('a member cannot update an issue that is not assigned to them', function ()
 
     $this->actingAs($developer);
 
-    Livewire::test('pages::issues.show', ['issue' => $issue])
-        ->call('toggleStatus')
-        ->assertForbidden();
+    $this->get(route('issues.show', $issue))->assertForbidden();
+    $this->get(route('issues.edit', $issue))->assertForbidden();
 });
 
 test('issues can be filtered by label', function () {
@@ -133,4 +134,110 @@ test('issues can be filtered by label', function () {
         ->set('labelId', (string) $website->id)
         ->assertSee('Website login bug')
         ->assertDontSee('Unrelated invoice task');
+});
+
+test('task assignees are limited to the owner and employees', function () {
+    $owner = User::factory()->create([
+        'name' => 'Avery Owner',
+        'email' => 'owner@example.com',
+    ]);
+
+    ['team' => $team, 'client' => $client, 'assignedProject' => $project] = clientPortalFixtures($owner);
+
+    attachTeamMember($team, User::factory()->create([
+        'name' => 'Riley Employee',
+        'email' => 'riley@example.com',
+    ]));
+
+    $clientUser = User::factory()->create([
+        'name' => 'Casey Client',
+        'email' => 'casey@example.com',
+    ]);
+
+    attachClientUser($team, $client, $clientUser);
+
+    $issue = Issue::factory()->local()->create([
+        'team_id' => $team->id,
+        'project_id' => $project->id,
+        'title' => 'Staff only task',
+    ]);
+
+    $this->actingAs($owner);
+
+    Livewire::test('issues.task-form')
+        ->assertSee('Avery Owner')
+        ->assertSee('Riley Employee')
+        ->assertDontSee('Casey Client')
+        ->set('projectId', $project->id)
+        ->set('title', 'Should stay unassigned')
+        ->set('assigneeIds', [$clientUser->id])
+        ->call('create')
+        ->assertHasErrors('assigneeIds');
+
+    expect(Issue::query()->where('title', 'Should stay unassigned')->exists())->toBeFalse();
+
+    Livewire::test('pages::issues.edit', ['issue' => $issue])
+        ->assertSee('Riley Employee')
+        ->assertDontSee('Casey Client')
+        ->set('assigneeIds', [$clientUser->id])
+        ->call('saveAssignees')
+        ->assertHasErrors('assigneeIds');
+
+    expect($issue->fresh()->assignees()->pluck('users.id')->all())->toBe([]);
+
+    Livewire::test('pages::issues.index')
+        ->assertSee('Riley Employee')
+        ->assertDontSee('Casey Client');
+});
+
+test('an owner can assign an employee from the task table', function () {
+    $owner = User::factory()->create([
+        'name' => 'Avery Owner',
+        'email' => 'owner@example.com',
+    ]);
+
+    ['team' => $team, 'client' => $client, 'assignedProject' => $project] = clientPortalFixtures($owner);
+
+    $employee = attachTeamMember($team, User::factory()->create([
+        'name' => 'Riley Employee',
+        'email' => 'riley@example.com',
+    ]));
+
+    $clientUser = User::factory()->create([
+        'name' => 'Casey Client',
+        'email' => 'casey@example.com',
+    ]);
+
+    attachClientUser($team, $client, $clientUser);
+
+    $issue = Issue::factory()->local()->create([
+        'team_id' => $team->id,
+        'project_id' => $project->id,
+        'title' => 'Table assign',
+    ]);
+
+    $this->actingAs($owner);
+
+    Livewire::test('pages::issues.index')
+        ->assertSeeHtml('data-test="table-assignee"')
+        ->call('assignTask', $issue->id, (string) $employee->id)
+        ->assertHasNoErrors();
+
+    expect($issue->fresh()->assignees()->pluck('users.id')->all())->toBe([$employee->id]);
+
+    Livewire::test('pages::issues.index')
+        ->call('assignTask', $issue->id, '')
+        ->assertHasNoErrors();
+
+    expect($issue->fresh()->assignees()->count())->toBe(0);
+
+    Livewire::test('pages::projects.show', ['project' => $project])
+        ->call('assignTask', $issue->id, (string) $employee->id)
+        ->assertHasNoErrors();
+
+    expect($issue->fresh()->assignees()->pluck('users.id')->all())->toBe([$employee->id]);
+
+    Livewire::test('pages::issues.index')
+        ->call('assignTask', $issue->id, (string) $clientUser->id)
+        ->assertHasErrors('assigneeIds');
 });

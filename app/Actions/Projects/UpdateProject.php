@@ -3,8 +3,6 @@
 namespace App\Actions\Projects;
 
 use App\Enums\ProjectStatus;
-use App\Enums\Provider;
-use App\Models\ConnectedSource;
 use App\Models\Project;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -16,14 +14,20 @@ class UpdateProject
         string $name,
         ?string $description,
         ProjectStatus $status,
-        ?string $connectedSourceId,
+        ?string $clientId = null,
     ): Project {
         $project->update([
             'name' => $name,
             'description' => filled($description) ? $description : null,
             'status' => $status,
-            'connected_source_id' => $this->githubSourceId($project, $connectedSourceId),
+            'client_id' => $this->clientId($project, $clientId),
         ]);
+
+        if ($project->wasChanged('client_id')) {
+            $project->issues()->update([
+                'client_id' => $project->client_id,
+            ]);
+        }
 
         Log::info('Project updated', [
             'project_id' => $project->id,
@@ -33,24 +37,20 @@ class UpdateProject
         return $project->fresh(['connectedSource']) ?? $project;
     }
 
-    protected function githubSourceId(Project $project, ?string $connectedSourceId): ?string
+    protected function clientId(Project $project, ?string $clientId): ?string
     {
-        if (blank($connectedSourceId)) {
+        if (blank($clientId)) {
             return null;
         }
 
-        $source = ConnectedSource::query()
-            ->whereKey($connectedSourceId)
-            ->where('team_id', $project->team_id)
-            ->whereHas('connection', fn ($query) => $query->where('provider', Provider::Github))
-            ->first();
+        $client = $project->team->clients()->whereKey($clientId)->first();
 
-        if ($source === null) {
+        if ($client === null) {
             throw ValidationException::withMessages([
-                'connectedSourceId' => __('Choose a GitHub repository on this team.'),
+                'clientId' => [__('Choose a client on this team.')],
             ]);
         }
 
-        return $source->id;
+        return $client->id;
     }
 }

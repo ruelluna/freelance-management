@@ -1,45 +1,36 @@
 @props(['showTeam' => true])
 
-<flux:dropdown position="bottom" align="start">
-    <button type="button" class="group flex w-full items-center rounded-lg p-1 hover:bg-zinc-800/5 dark:hover:bg-white/10" data-test="sidebar-menu-button">
-        <flux:avatar :initials="auth()->user()->initials()" size="sm" />
-        <div class="in-data-flux-sidebar-collapsed-desktop:hidden mx-2 grid flex-1 text-start text-sm leading-tight">
-            <span class="truncate font-medium text-zinc-500 group-hover:text-zinc-800 dark:text-white/80 dark:group-hover:text-white">{{ auth()->user()->name }}</span>
-            @if($showTeam && auth()->user()->currentTeam)
-                <span class="truncate text-xs text-zinc-400 dark:text-zinc-500">{{ auth()->user()->currentTeam->name }}</span>
-            @endif
-        </div>
-        <flux:icon name="chevrons-up-down" variant="micro" class="in-data-flux-sidebar-collapsed-desktop:hidden ms-auto size-4 text-zinc-400 group-hover:text-zinc-800 dark:text-white/80 dark:group-hover:text-white" />
-    </button>
+<x-dropdown position="bottom-end" width="md">
+    <x-slot:action>
+        <button type="button" class="flex items-center gap-2 rounded-lg p-1 text-start hover:bg-gray-100 dark:hover:bg-dark-700" data-test="sidebar-menu-button" x-on:click="show = !show">
+            <x-avatar :text="auth()->user()->initials()" xs />
+            <span class="hidden min-w-0 sm:block">
+                <span class="block truncate text-sm font-medium text-gray-800 dark:text-white">{{ auth()->user()->name }}</span>
+                @if ($showTeam && auth()->user()->currentTeam)
+                    <span class="block truncate text-xs text-gray-500 dark:text-dark-300">{{ auth()->user()->currentTeam->name }}</span>
+                @endif
+            </span>
+            <x-icon name="chevron-down" class="size-4 text-gray-400" />
+        </button>
+    </x-slot:action>
 
-    <flux:menu>
-        <div class="flex items-center gap-2 px-1 py-1.5 text-start text-sm">
-            <flux:avatar
-                :name="auth()->user()->name"
-                :initials="auth()->user()->initials()"
-            />
-            <div class="grid flex-1 text-start text-sm leading-tight">
-                <flux:heading class="truncate">{{ auth()->user()->name }}</flux:heading>
-                <flux:text class="truncate">{{ auth()->user()->email }}</flux:text>
+    <x-slot:header>
+        <div class="flex items-center gap-2 px-1 py-1">
+            <x-avatar :text="auth()->user()->initials()" sm />
+            <div class="min-w-0">
+                <p class="truncate text-sm font-medium text-gray-900 dark:text-white">{{ auth()->user()->name }}</p>
+                <p class="truncate text-xs text-gray-500 dark:text-dark-300">{{ auth()->user()->email }}</p>
             </div>
         </div>
-        <flux:menu.separator />
-        <flux:menu.radio.group>
-            <flux:menu.item :href="route('profile.edit')" icon="cog" wire:navigate>
-                {{ __('Settings') }}
-            </flux:menu.item>
-            <form method="POST" action="{{ route('logout') }}" class="w-full">
-                @csrf
-                <flux:menu.item
-                    as="button"
-                    type="submit"
-                    icon="arrow-right-start-on-rectangle"
-                    class="w-full cursor-pointer"
-                    data-test="logout-button"
-                >
-                    {{ __('Log out') }}
-                </flux:menu.item>
-            </form>
-        </flux:menu.radio.group>
-    </flux:menu>
-</flux:dropdown>
+        <div class="mt-3">
+            <x-theme-switch block />
+        </div>
+    </x-slot:header>
+
+    <x-dropdown.items :text="__('Settings')" icon="cog-6-tooth" :href="route('profile.edit')" navigate />
+
+    <form method="POST" action="{{ route('logout') }}" class="w-full">
+        @csrf
+        <x-dropdown.items :text="__('Log out')" icon="arrow-right-start-on-rectangle" separator type="submit" data-test="logout-button" />
+    </form>
+</x-dropdown>

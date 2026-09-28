@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Concerns\HasTeams;
+use App\Enums\TeamRole;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -18,6 +19,7 @@ use Illuminate\Support\Str;
 use Laravel\Fortify\Contracts\PasskeyUser;
 use Laravel\Fortify\PasskeyAuthenticatable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
+use Spatie\Permission\Traits\HasRoles;
 
 /**
  * @property int $id
@@ -38,13 +40,17 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property-read Collection<int, Team> $teams
  * @property-read Collection<int, UserIdentity> $identities
  * @property-read Collection<int, Issue> $assignedIssues
+ * @property-read Collection<int, Client> $clients
+ * @property-read Collection<int, Project> $assignedProjects
  */
 #[Fillable(['name', 'email', 'password', 'current_team_id'])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
 class User extends Authenticatable implements PasskeyUser
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, HasTeams, Notifiable, PasskeyAuthenticatable, TwoFactorAuthenticatable;
+    use HasFactory, HasRoles, HasTeams, Notifiable, PasskeyAuthenticatable, TwoFactorAuthenticatable {
+        HasTeams::teams insteadof HasRoles;
+    }
 
     /**
      * Get the attributes that should be cast.
@@ -74,6 +80,73 @@ class User extends Authenticatable implements PasskeyUser
     public function assignedIssues(): BelongsToMany
     {
         return $this->belongsToMany(Issue::class, 'issue_assignee')->withTimestamps();
+    }
+
+    /**
+     * @return BelongsToMany<Client, $this>
+     */
+    public function clients(): BelongsToMany
+    {
+        return $this->belongsToMany(Client::class, 'client_user')->withTimestamps();
+    }
+
+    public function clientForTeam(Team $team): ?Client
+    {
+        return $this->clients()
+            ->where('clients.team_id', $team->id)
+            ->first();
+    }
+
+    /**
+     * @return BelongsToMany<Project, $this>
+     */
+    public function assignedProjects(): BelongsToMany
+    {
+        return $this->belongsToMany(Project::class, 'project_user')->withTimestamps();
+    }
+
+    public function isScopedTeamUser(Team $team): bool
+    {
+        $role = $this->teamRole($team);
+
+        return $role?->isClient() || $role === TeamRole::Member;
+    }
+
+    public function portalSlug(?Team $team = null): ?string
+    {
+        $team ??= $this->currentTeam;
+
+        if ($team === null) {
+            return null;
+        }
+
+        if ($this->isTeamClient($team)) {
+            return $this->clientForTeam($team)?->slug ?? $team->slug;
+        }
+
+        return $team->slug;
+    }
+
+    public function homeRoute(): string
+    {
+        $team = $this->currentTeam;
+
+        if ($team !== null && $this->isTeamClient($team)) {
+            return 'dashboard';
+        }
+
+        return 'workspace';
+    }
+
+    public function sectionRoute(string $name): string
+    {
+        $team = $this->currentTeam;
+
+        if ($team !== null && $this->isTeamClient($team)) {
+            return 'client.'.$name;
+        }
+
+        return $name;
     }
 
     /**

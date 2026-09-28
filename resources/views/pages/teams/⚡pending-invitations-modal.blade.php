@@ -1,21 +1,23 @@
 <?php
 
 use App\Models\TeamInvitation;
-use Flux\Flux;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
+use TallStackUi\Traits\Interactions;
 
 new class extends Component {
+    use Interactions;
+
     public bool $showPendingInvitationsModal = true;
 
     public function mount(): void
     {
         if (session()->pull('team-invitation-accepted')) {
-            Flux::toast(variant: 'success', text: __('Invitation accepted.'));
+            $this->toast()->success(__('Invitation accepted.'))->send();
         }
     }
 
@@ -57,6 +59,14 @@ new class extends Component {
                 ['role' => $invitation->role]
             );
 
+            if ($invitation->client_id !== null) {
+                $invitation->loadMissing('client');
+
+                if ($invitation->client !== null) {
+                    $invitation->client->users()->syncWithoutDetaching([$user->id]);
+                }
+            }
+
             $invitation->update(['accepted_at' => now()]);
 
             $user->switchTeam($team);
@@ -64,7 +74,7 @@ new class extends Component {
 
         session()->flash('team-invitation-accepted', true);
 
-        $this->redirectRoute('dashboard', navigate: true);
+        $this->redirectRoute($user->homeRoute(), navigate: true);
     }
 
     public function declineInvitation(string $code): void
@@ -73,7 +83,7 @@ new class extends Component {
 
         $invitation->delete();
 
-        Flux::toast(variant: 'success', text: __('Invitation declined.'));
+        $this->toast()->success(__('Invitation declined.'))->send();
     }
 
     private function findPendingInvitation(string $code): TeamInvitation
@@ -101,46 +111,40 @@ new class extends Component {
 
 <div>
     @if ($this->pendingInvitations->isNotEmpty())
-        <flux:modal name="pending-invitations" wire:model="showPendingInvitationsModal" focusable class="max-w-lg">
+        <x-modal id="pending-invitations" wire="showPendingInvitationsModal" :title="__('Pending team invitations')" center size="lg">
             <div data-test="pending-invitations-modal" class="space-y-6">
-                <div>
-                    <flux:heading size="lg">{{ __('Pending team invitations') }}</flux:heading>
-                    <flux:subheading>{{ __('Accept or decline the teams you have been invited to join.') }}</flux:subheading>
-                </div>
+                <p class="text-sm text-gray-500 dark:text-dark-300">{{ __('Accept or decline the teams you have been invited to join.') }}</p>
 
                 <div class="grid gap-4">
                     @foreach ($this->pendingInvitations as $invitation)
-                        <div data-test="pending-invitation-row" class="rounded-lg border border-zinc-200 p-4 dark:border-zinc-700">
+                        <div data-test="pending-invitation-row" class="rounded-lg border border-zinc-200 p-4 dark:border-dark-700">
                             <div class="space-y-1">
-                                <p class="font-medium">{{ $invitation['team_name'] }}</p>
-                                <flux:text class="text-sm text-zinc-500 dark:text-zinc-400">
+                                <p class="font-medium text-gray-900 dark:text-white">{{ $invitation['team_name'] }}</p>
+                                <p class="text-sm text-gray-500 dark:text-dark-300">
                                     {{ __(':inviter invited you to join this team.', ['inviter' => $invitation['inviter_name']]) }}
-                                </flux:text>
+                                </p>
                             </div>
 
                             <div class="mt-4 flex justify-end gap-2">
-                                <flux:button
-                                    variant="filled"
+                                <x-button
+                                    outline
                                     wire:click="declineInvitation('{{ $invitation['code'] }}')"
                                     wire:loading.attr="disabled"
                                     data-test="pending-invitation-decline"
-                                >
-                                    {{ __('Decline') }}
-                                </flux:button>
+                                    :text="__('Decline')"
+                                />
 
-                                <flux:button
-                                    variant="primary"
+                                <x-button
                                     wire:click="acceptInvitation('{{ $invitation['code'] }}')"
                                     wire:loading.attr="disabled"
                                     data-test="pending-invitation-accept"
-                                >
-                                    {{ __('Accept') }}
-                                </flux:button>
+                                    :text="__('Accept')"
+                                />
                             </div>
                         </div>
                     @endforeach
                 </div>
             </div>
-        </flux:modal>
+        </x-modal>
     @endif
 </div>

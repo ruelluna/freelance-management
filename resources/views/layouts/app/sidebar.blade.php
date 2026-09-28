@@ -1,107 +1,66 @@
+@props(['title' => null])
+
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="dark">
+<html
+    lang="{{ str_replace('_', '-', app()->getLocale()) }}"
+    x-data="tallstackui_darkTheme({ default: 'dark' })"
+    x-bind:class="{ dark: darkTheme }"
+>
     <head>
-        @include('partials.head')
+        @include('partials.head', ['title' => $title])
     </head>
-    <body class="min-h-screen bg-white dark:bg-zinc-800">
-        <flux:sidebar sticky collapsible="mobile" class="border-e border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
-            <flux:sidebar.header>
-                <x-app-logo :sidebar="true" href="{{ route('dashboard') }}" wire:navigate />
-                <flux:sidebar.collapse class="lg:hidden" />
-            </flux:sidebar.header>
+    <body>
+        <x-layout>
+            <x-slot:header>
+                <x-layout.header>
+                    <x-slot:left>
+                        @if (filled($title))
+                            <span class="truncate text-sm font-semibold text-gray-900 dark:text-white">{{ $title }}</span>
+                        @endif
+                    </x-slot:left>
 
-            <livewire:team-switcher />
+                    <x-slot:right>
+                        <x-desktop-user-menu :showTeam="false" />
+                    </x-slot:right>
+                </x-layout.header>
+            </x-slot:header>
 
-            <flux:sidebar.nav>
-                <flux:sidebar.group :heading="__('Platform')" class="grid">
-                    <flux:sidebar.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
-                        {{ __('Dashboard') }}
-                    </flux:sidebar.item>
-                    <flux:sidebar.item icon="folder" :href="route('projects.index')" :current="request()->routeIs('projects.*')" wire:navigate>
-                        {{ __('Projects') }}
-                    </flux:sidebar.item>
-                    <flux:sidebar.item icon="queue-list" :href="route('issues.index')" :current="request()->routeIs('issues.*')" wire:navigate>
-                        {{ __('Tasks') }}
-                    </flux:sidebar.item>
-                    <flux:sidebar.item icon="tag" :href="route('labels.index')" :current="request()->routeIs('labels.*')" wire:navigate>
-                        {{ __('Labels') }}
-                    </flux:sidebar.item>
-                    <flux:sidebar.item icon="folder-git-2" :href="route('connections.index')" :current="request()->routeIs('connections.*')" wire:navigate>
-                        {{ __('Connections') }}
-                    </flux:sidebar.item>
-                </flux:sidebar.group>
-            </flux:sidebar.nav>
+            <x-slot:menu>
+                <x-side-bar collapsible smart navigate thin-scroll>
+                    <x-slot:brand>
+                        <div class="flex flex-col gap-3 px-3 py-4">
+                            <a href="{{ route(auth()->user()->homeRoute()) }}" wire:navigate class="flex items-center" aria-label="{{ config('app.name') }}">
+                                <x-app-logo-icon class="size-8" />
+                            </a>
 
-            <flux:spacer />
-
-            <x-desktop-user-menu class="hidden lg:block" :name="auth()->user()->name" />
-        </flux:sidebar>
-
-        <!-- Mobile User Menu -->
-        <flux:header class="lg:hidden">
-            <flux:sidebar.toggle class="lg:hidden" icon="bars-2" inset="left" />
-
-            <flux:spacer />
-
-            <flux:dropdown position="top" align="end">
-                <flux:profile
-                    :initials="auth()->user()->initials()"
-                    icon-trailing="chevron-down"
-                />
-
-                <flux:menu>
-                    <flux:menu.radio.group>
-                        <div class="p-0 text-sm font-normal">
-                            <div class="flex items-center gap-2 px-1 py-1.5 text-start text-sm">
-                                <flux:avatar
-                                    :name="auth()->user()->name"
-                                    :initials="auth()->user()->initials()"
-                                />
-
-                                <div class="grid flex-1 text-start text-sm leading-tight">
-                                    <flux:heading class="truncate">{{ auth()->user()->name }}</flux:heading>
-                                    <flux:text class="truncate">{{ auth()->user()->email }}</flux:text>
-                                </div>
-                            </div>
+                            @unless (auth()->user()->isScopedTeamUser(auth()->user()->currentTeam))
+                                <livewire:team-switcher />
+                            @endunless
                         </div>
-                    </flux:menu.radio.group>
+                    </x-slot:brand>
 
-                    <flux:menu.separator />
+                    <x-slot:brand-collapsed>
+                        <div class="flex justify-center py-4">
+                            <a href="{{ route(auth()->user()->homeRoute()) }}" wire:navigate aria-label="{{ config('app.name') }}">
+                                <x-app-logo-icon class="size-8" />
+                            </a>
+                        </div>
+                    </x-slot:brand-collapsed>
 
-                    <flux:menu.radio.group>
-                        <flux:menu.item :href="route('profile.edit')" icon="cog" wire:navigate>
-                            {{ __('Settings') }}
-                        </flux:menu.item>
-                    </flux:menu.radio.group>
+                    <x-side-bar.separator :text="__('Platform')" line />
+                    <x-nav.platform-links />
+                </x-side-bar>
+            </x-slot:menu>
 
-                    <flux:menu.separator />
+            {{ $slot }}
+        </x-layout>
 
-                    <form method="POST" action="{{ route('logout') }}" class="w-full">
-                        @csrf
-                        <flux:menu.item
-                            as="button"
-                            type="submit"
-                            icon="arrow-right-start-on-rectangle"
-                            class="w-full cursor-pointer"
-                            data-test="logout-button"
-                        >
-                            {{ __('Log out') }}
-                        </flux:menu.item>
-                    </form>
-                </flux:menu>
-            </flux:dropdown>
-        </flux:header>
-
-        {{ $slot }}
-
-        <livewire:create-team-modal />
+        @can('create', App\Models\Team::class)
+            <livewire:create-team-modal />
+        @endcan
 
         @persist('toast')
-            <flux:toast.group>
-                <flux:toast />
-            </flux:toast.group>
+            <x-toast />
         @endpersist
-
-        @fluxScripts
     </body>
 </html>

@@ -16,4 +16,9 @@ enum Provider: string
             self::Superhuman => 'Superhuman Docs',
         };
     }
+
+    public function isAvailable(): bool
+    {
+        return $this === self::Github;
+    }
 }

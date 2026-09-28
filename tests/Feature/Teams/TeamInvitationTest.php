@@ -90,7 +90,7 @@ test('team invitations can be accepted', function () {
     $response = Livewire::test('pages::teams.pending-invitations-modal')
         ->call('acceptInvitation', $invitation->code);
 
-    $response->assertRedirect(route('dashboard'));
+    $response->assertRedirect(route('workspace'));
 
     expect(session('team-invitation-accepted'))->toBeTrue();
 

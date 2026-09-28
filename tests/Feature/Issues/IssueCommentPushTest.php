@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\CommentAudience;
 use App\Jobs\PushCommentToSource;
 use App\Models\Issue;
 use App\Models\IssueComment;
@@ -24,7 +25,7 @@ test('commenting on an issue queues a push to the source', function () {
 
     Livewire::test('pages::issues.show', ['issue' => $issue])
         ->set('body', 'Working on this now.')
-        ->call('addComment')
+        ->call('addComment', 'internal')
         ->assertHasNoErrors();
 
     $comment = IssueComment::query()->first();
@@ -32,6 +33,7 @@ test('commenting on an issue queues a push to the source', function () {
     expect($comment)
         ->body->toBe('Working on this now.')
         ->author_name->toBe($owner->name)
+        ->audience->toBe(CommentAudience::Internal)
         ->external_id->toBeNull();
 
     Queue::assertPushed(PushCommentToSource::class, fn (PushCommentToSource $job): bool => $job->commentId === $comment->id);

@@ -16,10 +16,15 @@ class SetTeamUrlDefaults
      */
     public function handle(Request $request, Closure $next): Response
     {
-        if ($currentTeam = $request->user()?->currentTeam) {
+        $user = $request->user();
+        $currentTeam = $user?->currentTeam;
+
+        if ($user !== null && $currentTeam !== null) {
+            $slug = $user->portalSlug($currentTeam);
+
             URL::defaults([
-                'current_team' => $currentTeam->slug,
-                'team' => $currentTeam->slug,
+                'current_team' => $slug,
+                'team' => $slug,
             ]);
         }
 

@@ -1,11 +1,14 @@
 <?php
 
 use App\Enums\TeamRole;
+use App\Models\Client;
 use App\Models\ConnectedSource;
 use App\Models\Connection;
+use App\Models\Project;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
@@ -51,15 +54,21 @@ expect()->extend('toBeOne', function () {
 */
 
 /**
- * @return array{owner: User, team: Team, connection: Connection, source: ConnectedSource}
+ * @return array{owner: User, team: Team, project: Project, connection: Connection, source: ConnectedSource}
  */
 function githubConnectionForOwner(?User $owner = null): array
 {
     $owner ??= User::factory()->create(['email' => 'owner@example.com']);
     $team = $owner->currentTeam;
 
+    $project = Project::factory()->create([
+        'team_id' => $team->id,
+        'name' => 'Acme API',
+    ]);
+
     $connection = Connection::factory()->create([
         'team_id' => $team->id,
+        'project_id' => $project->id,
         'name' => 'GitHub',
     ]);
 
@@ -70,7 +79,11 @@ function githubConnectionForOwner(?User $owner = null): array
         'name' => 'acme/api',
     ]);
 
-    return compact('owner', 'team', 'connection', 'source');
+    $project->update([
+        'connected_source_id' => $source->id,
+    ]);
+
+    return compact('owner', 'team', 'project', 'connection', 'source');
 }
 
 function attachTeamMember(Team $team, User $member, TeamRole $role = TeamRole::Member): User
@@ -79,6 +92,67 @@ function attachTeamMember(Team $team, User $member, TeamRole $role = TeamRole::M
     $member->switchTeam($team);
 
     return $member;
+}
+
+function attachProjectMember(Project $project, User $member): User
+{
+    $project->members()->syncWithoutDetaching([$member->id]);
+
+    return $member;
+}
+
+function attachClientUser(Team $team, Client $client, User $user): User
+{
+    $team->members()->attach($user, ['role' => TeamRole::Client->value]);
+    $client->users()->attach($user);
+    $user->switchTeam($team);
+
+    return $user;
+}
+
+/**
+ * @return array{owner: User, team: Team, client: Client, assignedProject: Project, internalProject: Project}
+ */
+function clientPortalFixtures(?User $owner = null): array
+{
+    $owner ??= User::factory()->create(['email' => 'owner@example.com']);
+    $team = $owner->currentTeam;
+
+    $client = Client::factory()->create([
+        'team_id' => $team->id,
+        'name' => 'Acme Corp',
+    ]);
+
+    $assignedProject = Project::factory()->create([
+        'team_id' => $team->id,
+        'client_id' => $client->id,
+        'name' => 'Acme website',
+    ]);
+
+    $internalProject = Project::factory()->create([
+        'team_id' => $team->id,
+        'client_id' => null,
+        'name' => 'Internal ops',
+    ]);
+
+    return compact('owner', 'team', 'client', 'assignedProject', 'internalProject');
+}
+
+/**
+ * @param  array<int, array<string, mixed>>  $issues
+ * @param  array<string, mixed>  $overrides
+ */
+function fakeGithubSyncRequests(array $issues = [], array $overrides = []): void
+{
+    $issues = $issues === [] ? [githubIssuePayload()] : $issues;
+
+    Http::fake(array_merge([
+        'https://api.github.com/repos/acme/api/issues/12' => Http::response([
+            'body' => '<p>Issue html body</p>',
+        ]),
+        'https://api.github.com/repos/acme/api/issues/12/comments*' => Http::response([]),
+        'https://api.github.com/repos/acme/api/issues?*' => Http::response($issues),
+    ], $overrides));
 }
 
 function githubIssuePayload(array $overrides = []): array

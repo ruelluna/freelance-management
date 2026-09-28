@@ -19,8 +19,8 @@ class IssueFactory extends Factory
     {
         return [
             'connected_source_id' => ConnectedSource::factory(),
-            'connection_id' => fn (array $attributes): int => ConnectedSource::query()->findOrFail($attributes['connected_source_id'])->connection_id,
-            'team_id' => fn (array $attributes): int => ConnectedSource::query()->findOrFail($attributes['connected_source_id'])->team_id,
+            'connection_id' => fn (array $attributes): string => ConnectedSource::query()->findOrFail($attributes['connected_source_id'])->connection_id,
+            'team_id' => fn (array $attributes): string => ConnectedSource::query()->findOrFail($attributes['connected_source_id'])->team_id,
             'external_id' => (string) fake()->unique()->numerify('########'),
             'number' => fake()->unique()->numberBetween(1, 99999),
             'title' => fake()->sentence(),

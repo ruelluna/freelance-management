@@ -2,24 +2,22 @@
 
 use App\Models\User;
 
-test('registration screen can be rendered', function () {
-    $response = $this->get(route('register'));
+test('registration is closed', function () {
+    $this->get('/register')->assertNotFound();
 
-    $response->assertOk();
-});
-
-test('new users can register', function () {
-    $response = $this->post(route('register.store'), [
+    $this->post('/register', [
         'name' => 'John Doe',
         'email' => 'test@example.com',
         'password' => 'password',
         'password_confirmation' => 'password',
-    ]);
+    ])->assertNotFound();
 
-    $user = User::where('email', 'test@example.com')->first();
+    expect(User::query()->where('email', 'test@example.com')->exists())->toBeFalse();
+    $this->assertGuest();
+});
 
-    $response->assertSessionHasNoErrors()
-        ->assertRedirect(route('dashboard', absolute: false));
-
-    $this->assertAuthenticated();
+test('the login screen does not offer sign up', function () {
+    $this->get(route('login'))
+        ->assertOk()
+        ->assertDontSee(__('Sign up'));
 });

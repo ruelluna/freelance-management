@@ -1,16 +1,14 @@
 <?php
 
 use App\Actions\Issues\AddIssueComment;
-use App\Actions\Issues\AssignIssue;
-use App\Actions\Issues\DeleteIssue;
 use App\Actions\Issues\RefreshIssueFromRemote;
-use App\Actions\Issues\UpdateIssue;
-use App\Data\Integrations\IssueUpdate;
-use App\Enums\IssueStatus;
+use App\Actions\Issues\ShareIssueComment;
+use App\Actions\Issues\UnshareIssueComment;
+use App\Enums\CommentAudience;
 use App\Models\Issue;
-use App\Models\Project;
+use App\Models\IssueComment;
 use App\Models\Team;
-use Flux\Flux;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -18,27 +16,16 @@ use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Component;
+use TallStackUi\Traits\Interactions;
 
 new #[Layout('layouts::app')] #[Title('Task')] class extends Component {
+    use Interactions;
+
     public Issue $issue;
-
-    public string $title = '';
-
-    public string $description = '';
-
-    public string $projectId = '';
 
     public string $body = '';
 
-    /**
-     * @var array<int, int>
-     */
-    public array $assigneeIds = [];
-
-    /**
-     * @var array<int, string>
-     */
-    public array $labelNames = [];
+    public ?string $replyToId = null;
 
     public function mount(Issue $issue, RefreshIssueFromRemote $refresh): void
     {
@@ -46,24 +33,22 @@ new #[Layout('layouts::app')] #[Title('Task')] class extends Component {
 
         Gate::authorize('view', $issue);
 
-        $this->issue = $issue->load(['labels', 'assignees', 'comments.user', 'connectedSource', 'connection', 'project']);
+        $this->issue = $issue->load($this->issueRelations());
 
-        if ($this->issue->isLinkedToSource()) {
+        if ($this->issue->isLinkedToSource() && ! Auth::user()->isScopedTeamUser($this->team())) {
             $stale = $this->issue->last_synced_at === null
                 || $this->issue->last_synced_at->lte(now()->subSeconds(60));
 
             if ($stale) {
                 if (! $refresh->handle($this->issue)) {
-                    Flux::toast(variant: 'warning', text: __('Could not refresh from :source. Showing the last saved copy.', [
+                    $this->toast()->warning(__('Could not refresh from :source. Showing the last saved copy.', [
                         'source' => $this->issue->connection->provider->label(),
-                    ]));
+                    ]))->send();
                 }
 
                 $this->refreshIssue();
             }
         }
-
-        $this->fillFromIssue();
     }
 
     public function refreshFromRemote(RefreshIssueFromRemote $refresh): void
@@ -77,22 +62,35 @@ new #[Layout('layouts::app')] #[Title('Task')] class extends Component {
         $ok = $refresh->handle($this->issue);
 
         $this->refreshIssue();
-        $this->fillFromIssue();
 
         if ($ok) {
-            Flux::toast(variant: 'success', text: __('Issue updated from :source.', [
+            $this->toast()->success(__('Issue updated from :source.', [
                 'source' => $this->issue->connection->provider->label(),
-            ]));
+            ]))->send();
 
             return;
         }
 
-        Flux::toast(variant: 'warning', text: __('Could not refresh from :source. Showing the last saved copy.', [
+        $this->toast()->warning(__('Could not refresh from :source. Showing the last saved copy.', [
             'source' => $this->issue->connection->provider->label(),
-        ]));
+        ]))->send();
     }
 
-    public function addComment(AddIssueComment $action): void
+    public function startReply(string $commentId): void
+    {
+        Gate::authorize('comment', $this->issue);
+
+        $comment = $this->visibleComment($commentId);
+
+        $this->replyToId = $comment->id;
+    }
+
+    public function cancelReply(): void
+    {
+        $this->replyToId = null;
+    }
+
+    public function addComment(AddIssueComment $action, ?string $audience = null): void
     {
         Gate::authorize('comment', $this->issue);
 
@@ -100,158 +98,203 @@ new #[Layout('layouts::app')] #[Title('Task')] class extends Component {
             'body' => ['required', 'string', 'min:1', 'max:65535'],
         ]);
 
-        $action->handle($this->issue, Auth::user(), $this->body);
+        $parent = filled($this->replyToId) ? $this->visibleComment($this->replyToId) : null;
 
-        $this->reset('body');
+        $comment = $action->handle(
+            $this->issue,
+            Auth::user(),
+            $this->body,
+            $this->resolveAudience($audience),
+            $parent,
+        );
+
+        $this->reset('body', 'replyToId');
         $this->refreshIssue();
 
-        if ($this->issue->isLinkedToSource()) {
-            Flux::toast(variant: 'success', text: __('Comment sent to :source.', [
-                'source' => $this->issue->connection->provider->label(),
-            ]));
+        if ($comment->audience === CommentAudience::Client && Auth::user()->ownsTeam($this->team())) {
+            $this->toast()->success(__('Reply sent to the client.'))->send();
 
             return;
         }
 
-        Flux::toast(variant: 'success', text: __('Comment added.'));
-    }
+        if ($comment->audience === CommentAudience::Internal && $this->issue->isLinkedToSource()) {
+            $this->toast()->success(__('Comment sent to :source.', [
+                'source' => $this->issue->connection->provider->label(),
+            ]))->send();
 
-    public function saveDetails(UpdateIssue $action): void
-    {
-        Gate::authorize('update', $this->issue);
-
-        $validated = $this->validate([
-            'title' => ['required', 'string', 'max:255'],
-            'description' => ['nullable', 'string', 'max:65535'],
-            'projectId' => ['nullable', 'uuid'],
-        ]);
-
-        if (filled($validated['projectId'] ?? null)) {
-            $project = $this->team()->projects()->findOrFail($validated['projectId']);
-            $this->issue->update(['project_id' => $project->id]);
-        } else {
-            $this->issue->update(['project_id' => null]);
+            return;
         }
 
-        $action->handle($this->issue, new IssueUpdate(
-            title: $validated['title'],
-            body: $validated['description'] ?? '',
-        ));
-
-        $this->refreshIssue();
-        $this->fillFromIssue();
-
-        Flux::toast(variant: 'success', text: __('Task saved.'));
+        $this->toast()->success(__('Comment added.'))->send();
     }
 
-    public function delete(DeleteIssue $action): void
+    public function shareComment(string $commentId, ShareIssueComment $action): void
     {
-        Gate::authorize('delete', $this->issue);
+        abort_unless(Auth::user()->ownsTeam($this->team()), 403);
 
-        $action->handle($this->issue);
+        $comment = $this->issue->comments()
+            ->visibleTo(Auth::user(), $this->team())
+            ->findOrFail($commentId);
 
-        $this->redirect(route('issues.index'), navigate: true);
-    }
-
-    public function toggleStatus(UpdateIssue $action): void
-    {
-        Gate::authorize('update', $this->issue);
-
-        $next = $this->issue->status === IssueStatus::Open
-            ? IssueStatus::Closed
-            : IssueStatus::Open;
-
-        $action->handle($this->issue, new IssueUpdate(status: $next->value));
+        $action->handle($comment, Auth::user());
         $this->refreshIssue();
 
-        Flux::toast(variant: 'success', text: __('Issue :status.', ['status' => $next->label()]));
+        $this->toast()->success(__('Shared with the team.'))->send();
     }
 
-    public function saveAssignees(AssignIssue $action): void
+    public function unshareComment(string $commentId, UnshareIssueComment $action): void
     {
-        Gate::authorize('assign', $this->issue);
+        abort_unless(Auth::user()->ownsTeam($this->team()), 403);
 
-        $action->handle($this->issue, $this->assigneeIds);
+        $comment = $this->issue->comments()
+            ->visibleTo(Auth::user(), $this->team())
+            ->findOrFail($commentId);
+
+        $action->handle($comment, Auth::user());
         $this->refreshIssue();
 
-        Flux::toast(variant: 'success', text: __('Assignees updated.'));
+        $this->toast()->success(__('Comment is private again.'))->send();
     }
 
-    public function saveLabels(UpdateIssue $action): void
+    #[Computed]
+    public function canEdit(): bool
     {
-        Gate::authorize('update', $this->issue);
+        $user = Auth::user();
 
-        $action->handle($this->issue, new IssueUpdate(labelNames: $this->labelNames));
-        $this->refreshIssue();
-        $this->labelNames = $this->issue->labels->pluck('name')->all();
+        return $user->can('update', $this->issue) || $user->can('assign', $this->issue);
+    }
 
-        Flux::toast(variant: 'success', text: __('Labels updated.'));
+    #[Computed]
+    public function isScopedUser(): bool
+    {
+        return Auth::user()->isScopedTeamUser($this->team());
+    }
+
+    #[Computed]
+    public function isOwner(): bool
+    {
+        return Auth::user()->ownsTeam($this->team());
+    }
+
+    #[Computed]
+    public function isClient(): bool
+    {
+        return Auth::user()->isTeamClient($this->team());
     }
 
     /**
-     * @return Collection<int, \App\Models\User>
+     * @return Collection<int, IssueComment>
      */
     #[Computed]
-    public function members(): Collection
+    public function commentThreads(): Collection
     {
-        return $this->team()->members()->orderBy('name')->get();
-    }
+        $comments = $this->issue->comments;
+        $byParent = $comments->groupBy(fn (IssueComment $comment): string => $comment->parent_id ?? 'root');
 
-    /**
-     * @return Collection<int, \App\Models\Label>
-     */
-    #[Computed]
-    public function labels(): Collection
-    {
-        return $this->team()->labels()->orderBy('name')->get();
-    }
+        $nest = function (IssueComment $comment) use (&$nest, $byParent): IssueComment {
+            $replies = $byParent
+                ->get($comment->id, collect())
+                ->map(fn (IssueComment $reply): IssueComment => $nest($reply))
+                ->values();
 
-    #[Computed]
-    public function canUpdate(): bool
-    {
-        return Auth::user()->can('update', $this->issue);
-    }
+            $comment->setRelation('replies', $replies);
 
-    #[Computed]
-    public function canAssign(): bool
-    {
-        return Auth::user()->can('assign', $this->issue);
+            return $comment;
+        };
+
+        return $byParent
+            ->get('root', collect())
+            ->map(fn (IssueComment $comment): IssueComment => $nest($comment))
+            ->values();
     }
 
     #[Computed]
-    public function canDelete(): bool
+    public function replyTarget(): ?IssueComment
     {
-        return Auth::user()->can('delete', $this->issue);
+        if (blank($this->replyToId)) {
+            return null;
+        }
+
+        return $this->issue->comments->firstWhere('id', $this->replyToId);
     }
 
-    /**
-     * @return Collection<int, Project>
-     */
     #[Computed]
-    public function projects(): Collection
+    public function canReplyToClient(): bool
     {
-        return $this->team()->projects()->orderBy('name')->get();
+        if (! Auth::user()->ownsTeam($this->team())) {
+            return false;
+        }
+
+        $parent = $this->replyTarget;
+
+        return $parent === null || $parent->audience === CommentAudience::Client;
     }
 
-    protected function fillFromIssue(): void
+    #[Computed]
+    public function canLeaveTeamNote(): bool
     {
-        $this->assigneeIds = $this->issue->assignees->pluck('id')->all();
-        $this->labelNames = $this->issue->labels->pluck('name')->all();
-        $this->title = $this->issue->title;
-        $this->description = $this->issue->body ?? '';
-        $this->projectId = $this->issue->project_id ?? '';
+        if (Auth::user()->isTeamClient($this->team())) {
+            return false;
+        }
+
+        $parent = $this->replyTarget;
+
+        if ($parent === null || $parent->audience === CommentAudience::Internal) {
+            return true;
+        }
+
+        return $parent->isSharedWithTeam();
     }
 
     protected function refreshIssue(): void
     {
-        $this->issue = $this->issue->fresh([
-            'labels',
+        $this->issue = $this->issue->fresh($this->issueRelations());
+    }
+
+    /**
+     * @return array<int|string, mixed>
+     */
+    protected function issueRelations(): array
+    {
+        $relations = [
             'assignees',
-            'comments.user',
-            'connectedSource',
-            'connection',
+            'comments' => function (Relation $comments): void {
+                $comments->visibleTo(Auth::user(), $this->team());
+                $comments->with('user');
+            },
             'project',
-        ]);
+            'creator',
+        ];
+
+        if (! Auth::user()->isTeamClient($this->team())) {
+            array_unshift($relations, 'labels');
+            $relations[] = 'connectedSource';
+            $relations[] = 'connection';
+        }
+
+        return $relations;
+    }
+
+    protected function resolveAudience(?string $audience): CommentAudience
+    {
+        $user = Auth::user();
+
+        if ($user->isTeamClient($this->team())) {
+            return CommentAudience::Client;
+        }
+
+        if (! $user->ownsTeam($this->team())) {
+            return CommentAudience::Internal;
+        }
+
+        return CommentAudience::tryFrom($audience ?? '') ?? CommentAudience::Internal;
+    }
+
+    protected function visibleComment(string $commentId): IssueComment
+    {
+        return $this->issue->comments()
+            ->visibleTo(Auth::user(), $this->team())
+            ->findOrFail($commentId);
     }
 
     protected function team(): Team
@@ -262,181 +305,137 @@ new #[Layout('layouts::app')] #[Title('Task')] class extends Component {
 
 <div class="flex flex-col gap-6">
         <div>
-            <a href="{{ route('issues.index') }}" class="text-sm text-zinc-500 hover:underline" wire:navigate>{{ __('Back to tasks') }}</a>
+            <a href="{{ route(auth()->user()->sectionRoute('issues.index')) }}" class="text-sm text-zinc-500 hover:underline" wire:navigate>{{ __('Back to tasks') }}</a>
         </div>
 
         <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
-                <flux:heading size="xl">{{ $issue->title }}</flux:heading>
-                <flux:text class="mt-1 text-sm text-zinc-500">
+                <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">{{ $issue->title }}</h1>
+                <p class="mt-1 text-sm text-gray-500 dark:text-dark-300">
                     {{ $issue->project->name ?? __('No project') }}
-                    · {{ $issue->connectedSource->name ?? __('Local task') }}
+                    @unless (auth()->user()->isTeamClient(auth()->user()->currentTeam))
+                        · {{ $issue->sourceLabel() }}
+                        @if ($issue->connection_id === null && $issue->creator)
+                            · {{ $issue->creator->name }}
+                        @endif
+                    @endunless
                     @if ($issue->number)
                         · #{{ $issue->number }}
                     @endif
-                    @if ($issue->external_url)
+                    @if ($issue->external_url && ! $this->isScopedUser)
                         · <a href="{{ $issue->external_url }}" class="underline" target="_blank" rel="noreferrer">{{ __('Open source') }}</a>
                     @endif
-                </flux:text>
+                </p>
             </div>
 
             <div class="flex items-center gap-2">
-                <flux:badge :color="$issue->status === \App\Enums\IssueStatus::Open ? 'lime' : 'zinc'" data-test="issue-status">
-                    {{ $issue->status->label() }}
-                </flux:badge>
-                @if ($issue->isLinkedToSource())
-                    <flux:button
-                        variant="ghost"
+                <x-badge light data-test="issue-status" :color="$issue->status === \App\Enums\IssueStatus::Open ? 'green' : 'gray'" :text="$issue->status->label()" />
+                @if ($issue->isLinkedToSource() && ! $this->isScopedUser)
+                    <x-button
+                        outline
                         icon="arrow-path"
                         wire:click="refreshFromRemote"
                         wire:loading.attr="disabled"
                         wire:target="refreshFromRemote"
                         data-test="refresh-issue"
-                    >
-                        {{ __('Refresh') }}
-                    </flux:button>
+                        :text="__('Refresh')"
+                    />
                 @endif
-                @if ($this->canUpdate)
-                    <flux:button variant="filled" wire:click="toggleStatus" data-test="toggle-issue-status">
-                        {{ $issue->status === \App\Enums\IssueStatus::Open ? __('Close') : __('Reopen') }}
-                    </flux:button>
-                @endif
-                @if ($this->canDelete)
-                    <flux:modal.trigger name="delete-task">
-                        <flux:button variant="ghost" data-test="delete-task">{{ __('Delete') }}</flux:button>
-                    </flux:modal.trigger>
+                @if ($this->canEdit)
+                    <x-button
+                        outline
+                        icon="pencil-square"
+                        :href="route(auth()->user()->sectionRoute('issues.edit'), $issue)"
+                        wire:navigate
+                        data-test="edit-task"
+                        :text="__('Edit')"
+                    />
                 @endif
             </div>
         </div>
 
-        @if ($this->canUpdate)
-            <form wire:submit="saveDetails" class="space-y-4 rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
-                <flux:input wire:model="title" :label="__('Title')" data-test="edit-task-title" />
-                <flux:textarea wire:model="description" :label="__('Description')" rows="6" data-test="edit-task-description" />
-                <flux:select wire:model="projectId" :label="__('Project')" data-test="edit-task-project">
-                    <flux:select.option value="">{{ __('No project') }}</flux:select.option>
-                    @foreach ($this->projects as $project)
-                        <flux:select.option :value="$project->id">{{ $project->name }}</flux:select.option>
-                    @endforeach
-                </flux:select>
-                <flux:button variant="primary" type="submit" data-test="save-task">{{ __('Save task') }}</flux:button>
-            </form>
-        @endif
-
-        @if ($this->canDelete)
-            <flux:modal name="delete-task" class="max-w-lg">
-                <form wire:submit="delete" class="space-y-6">
-                    <div>
-                        <flux:heading size="lg">{{ __('Delete this task?') }}</flux:heading>
-                        <flux:subheading>
-                            @if ($issue->isLinkedToSource())
-                                {{ __('This removes the task from this app. The GitHub issue stays where it is.') }}
-                            @else
-                                {{ __('This removes the task from this app.') }}
-                            @endif
-                        </flux:subheading>
-                    </div>
-                    <div class="flex justify-end gap-2">
-                        <flux:modal.close>
-                            <flux:button variant="filled">{{ __('Cancel') }}</flux:button>
-                        </flux:modal.close>
-                        <flux:button variant="danger" type="submit" data-test="delete-task-confirm">{{ __('Delete') }}</flux:button>
-                    </div>
-                </form>
-            </flux:modal>
-        @endif
-
         @if ($issue->body_html)
             <x-issue-html
+                new-tab
                 :content="$issue->body_html"
-                class="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900"
+                class="rounded-xl border border-zinc-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-800"
             />
         @elseif ($issue->body)
             <x-markdown
+                new-tab
                 :content="$issue->body"
-                class="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900"
+                class="rounded-xl border border-zinc-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-800"
             />
         @else
-            <div class="rounded-xl border border-zinc-200 bg-white p-4 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900">
+            <div class="rounded-xl border border-zinc-200 bg-white p-4 text-sm text-zinc-500 dark:border-dark-700 dark:bg-dark-800">
                 {{ __('No description.') }}
             </div>
         @endif
 
-        <div class="grid gap-6 md:grid-cols-2">
-            <div class="space-y-3">
-                <flux:heading size="lg">{{ __('Labels') }}</flux:heading>
-                @if ($this->canUpdate)
-                    <form wire:submit="saveLabels" class="space-y-3">
-                        <div class="flex flex-wrap gap-2">
-                            @foreach ($this->labels as $label)
-                                <label class="flex items-center gap-2 text-sm" wire:key="label-{{ $label->id }}">
-                                    <input type="checkbox" value="{{ $label->name }}" wire:model="labelNames">
-                                    <span>{{ $label->name }}</span>
-                                </label>
-                            @endforeach
-                        </div>
-                        <flux:button type="submit" size="sm" data-test="save-labels">{{ __('Save labels') }}</flux:button>
-                    </form>
-                @else
+        <div @class(['grid gap-6', 'md:grid-cols-2' => ! $this->isClient])>
+            @unless ($this->isClient)
+                <div class="space-y-3">
+                    <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ __('Labels') }}</h2>
                     <div class="flex flex-wrap gap-1">
                         @forelse ($issue->labels as $label)
-                            <flux:badge color="zinc">{{ $label->name }}</flux:badge>
+                            <x-badge color="gray" light :text="$label->name" />
                         @empty
-                            <flux:text>{{ __('No labels.') }}</flux:text>
+                            <p class="text-sm text-gray-500 dark:text-dark-300">{{ __('No labels.') }}</p>
                         @endforelse
                     </div>
-                @endif
-            </div>
+                </div>
+            @endunless
 
             <div class="space-y-3">
-                <flux:heading size="lg">{{ __('Assignees') }}</flux:heading>
-                @if ($this->canAssign)
-                    <form wire:submit="saveAssignees" class="space-y-3">
-                        <div class="space-y-2">
-                            @foreach ($this->members as $member)
-                                <label class="flex items-center gap-2 text-sm" wire:key="assignee-{{ $member->id }}">
-                                    <input type="checkbox" value="{{ $member->id }}" wire:model="assigneeIds" data-test="assignee-checkbox">
-                                    <span>{{ $member->name }}</span>
-                                </label>
-                            @endforeach
-                        </div>
-                        <flux:button type="submit" size="sm" data-test="save-assignees">{{ __('Save assignees') }}</flux:button>
-                    </form>
-                @else
-                    <flux:text>{{ $issue->assignees->pluck('name')->join(', ') ?: __('Unassigned') }}</flux:text>
-                @endif
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ __('Assignees') }}</h2>
+                <p class="text-sm text-gray-500 dark:text-dark-300" data-test="issue-assignees">{{ $issue->assignees->pluck('name')->join(', ') ?: __('Unassigned') }}</p>
             </div>
         </div>
 
         <div class="space-y-4">
-            <flux:heading size="lg">{{ __('Comments') }}</flux:heading>
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ __('Comments') }}</h2>
 
             <div class="space-y-3">
-                @forelse ($issue->comments as $comment)
-                    <div class="rounded-xl border border-zinc-200 p-4 dark:border-zinc-700" wire:key="comment-{{ $comment->id }}" data-test="issue-comment">
-                        <div class="mb-2 flex items-center justify-between gap-2 text-sm text-zinc-500">
-                            <span>{{ $comment->author_name }}</span>
-                            <span>{{ $comment->created_at?->diffForHumans() }}</span>
-                        </div>
-                        @if ($comment->body_html)
-                            <x-issue-html :content="$comment->body_html" />
-                        @else
-                            <x-markdown
-                                :content="$comment->body"
-                                :allow-html="$comment->origin === \App\Enums\CommentOrigin::Remote"
-                            />
-                        @endif
+                @forelse ($this->commentThreads as $comment)
+                    <div data-test="comment-thread">
+                        <x-issues.comment :comment="$comment" :is-owner="$this->isOwner" :is-client="$this->isClient" />
                     </div>
                 @empty
-                    <flux:text>{{ __('No comments yet.') }}</flux:text>
+                    <p class="text-sm text-gray-500 dark:text-dark-300">{{ __('No comments yet.') }}</p>
                 @endforelse
             </div>
 
-            <form wire:submit="addComment" class="space-y-3">
-                <flux:textarea wire:model="body" :label="__('Comment')" rows="4" data-test="issue-comment-body" />
-                <flux:button variant="primary" type="submit" data-test="issue-comment-submit">
-                    {{ __('Comment') }}
-                </flux:button>
-            </form>
+            <div class="space-y-3">
+                @if ($this->replyTarget)
+                    <div class="flex items-center justify-between gap-2">
+                        <p class="text-sm text-gray-500 dark:text-dark-300" data-test="replying-to">
+                            {{ __('Replying to :name', ['name' => $this->replyTarget->author_name]) }}
+                        </p>
+                        <x-button outline sm wire:click="cancelReply" data-test="cancel-reply" :text="__('Cancel')" />
+                    </div>
+                @endif
+                <x-editor markdown wire:model="body" :label="$this->replyTarget ? __('Reply') : __('Comment')" min-height="8rem" data-test="issue-comment-body" />
+                @if ($this->isClient)
+                    <x-button wire:click="addComment" data-test="issue-comment-submit" :text="__('Comment')" />
+                @elseif ($this->canReplyToClient && $this->canLeaveTeamNote)
+                    <p class="text-sm text-gray-500 dark:text-dark-300">
+                        {{ __('A reply to the client stays private until you share it. A team note is visible to your employees and hidden from the client.') }}
+                    </p>
+                    <div class="flex flex-wrap gap-2">
+                        <x-button wire:click="addComment('client')" data-test="reply-to-client" :text="__('Reply to client')" />
+                        <x-button outline wire:click="addComment('internal')" data-test="note-for-team" :text="__('Note for team')" />
+                    </div>
+                @elseif ($this->canReplyToClient)
+                    <p class="text-sm text-gray-500 dark:text-dark-300" data-test="share-before-team-note">
+                        {{ __('Share this comment with the team before leaving a team note.') }}
+                    </p>
+                    <x-button wire:click="addComment('client')" data-test="reply-to-client" :text="__('Reply to client')" />
+                @else
+                    <p class="text-sm text-gray-500 dark:text-dark-300">
+                        {{ __('This note is visible to the team and hidden from the client.') }}
+                    </p>
+                    <x-button wire:click="addComment('internal')" data-test="note-for-team" :text="__('Note for team')" />
+                @endif
+            </div>
         </div>
     </div>

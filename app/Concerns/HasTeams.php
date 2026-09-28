@@ -88,7 +88,12 @@ trait HasTeams
         $this->update(['current_team_id' => $team->id]);
         $this->setRelation('currentTeam', $team);
 
-        URL::defaults(['current_team' => $team->slug]);
+        $slug = $this->portalSlug($team);
+
+        URL::defaults([
+            'current_team' => $slug,
+            'team' => $slug,
+        ]);
 
         return true;
     }
@@ -115,6 +120,11 @@ trait HasTeams
     public function ownsTeam(Team $team): bool
     {
         return $this->teamRole($team) === TeamRole::Owner;
+    }
+
+    public function canManageTodoist(Team $team): bool
+    {
+        return $this->ownsTeam($team);
     }
 
     /**
@@ -192,5 +202,17 @@ trait HasTeams
     public function hasTeamPermission(Team $team, TeamPermission $permission): bool
     {
         return $this->teamRole($team)?->hasPermission($permission) ?? false;
+    }
+
+    public function isTeamClient(Team $team): bool
+    {
+        return $this->teamRole($team)?->isClient() ?? false;
+    }
+
+    public function hasClientMembership(): bool
+    {
+        return $this->teamMemberships()
+            ->where('role', TeamRole::Client->value)
+            ->exists();
     }
 }

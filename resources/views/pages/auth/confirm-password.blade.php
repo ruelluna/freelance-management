@@ -18,19 +18,16 @@
         <form method="POST" action="{{ route('password.confirm.store') }}" class="flex flex-col gap-6">
             @csrf
 
-            <flux:input
+            <x-password
                 name="password"
                 :label="__('Password')"
-                type="password"
+                :rules="[]"
                 required
                 autocomplete="current-password"
                 :placeholder="__('Password')"
-                viewable
             />
 
-            <flux:button variant="primary" type="submit" class="w-full" data-test="confirm-password-button">
-                {{ __('Confirm') }}
-            </flux:button>
+            <x-button submit class="w-full" data-test="confirm-password-button" :text="__('Confirm')" />
         </form>
     </div>
 </x-layouts::auth>

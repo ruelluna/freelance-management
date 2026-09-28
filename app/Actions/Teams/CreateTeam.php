@@ -6,6 +6,7 @@ use App\Enums\TeamRole;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 
 class CreateTeam
 {
@@ -14,6 +15,8 @@ class CreateTeam
      */
     public function handle(User $user, string $name, bool $isPersonal = false): Team
     {
+        Gate::forUser($user)->authorize('create', Team::class);
+
         return DB::transaction(function () use ($user, $name, $isPersonal) {
             $team = Team::create([
                 'name' => $name,

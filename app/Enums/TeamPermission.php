@@ -17,6 +17,8 @@ enum TeamPermission: string
     case ManageConnections = 'connection:manage';
     case ManageLabels = 'label:manage';
     case ManageProjects = 'project:manage';
+    case ManageClients = 'client:manage';
+    case ManageUsers = 'user:manage';
     case ViewIssues = 'issue:view';
     case CreateIssues = 'issue:create';
     case UpdateIssues = 'issue:update';

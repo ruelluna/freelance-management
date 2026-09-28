@@ -12,7 +12,7 @@ class LabelPolicy
     public function viewAny(User $user, Team $team): bool
     {
         return $user->belongsToTeam($team)
-            && $user->hasTeamPermission($team, TeamPermission::ViewIssues);
+            && $user->hasTeamPermission($team, TeamPermission::ManageLabels);
     }
 
     public function create(User $user, Team $team): bool

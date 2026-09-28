@@ -8,19 +8,30 @@ use App\Models\Issue;
 use App\Models\User;
 use App\Models\UserIdentity;
 use App\Services\Integrations\IssueProviderFactory;
+use App\Services\TeamResourceAccess;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 
 class AssignIssue
 {
-    public function __construct(private IssueProviderFactory $providers) {}
+    public function __construct(
+        private IssueProviderFactory $providers,
+        private ResolveTaskAssignees $assignees,
+    ) {}
 
     /**
      * @param  array<int, int>  $userIds
      */
     public function handle(Issue $issue, array $userIds): Issue
     {
-        $teamMemberIds = $issue->team->members()->whereIn('users.id', $userIds)->pluck('users.id');
+        $actor = Auth::user();
+
+        $teamMemberIds = $this->assignees->handle(
+            $issue->team,
+            $userIds,
+            $actor instanceof User ? $actor : null,
+        );
 
         $issue->assignees()->sync($teamMemberIds);
 
@@ -53,6 +64,12 @@ class AssignIssue
      */
     public function assignableMembers(Issue $issue): Collection
     {
-        return $issue->team->members()->orderBy('name')->get();
+        $actor = Auth::user();
+
+        if (! $actor instanceof User) {
+            return $issue->team->staff()->orderBy('name')->get();
+        }
+
+        return TeamResourceAccess::for($actor, $issue->team)->assignableUsers();
     }
 }

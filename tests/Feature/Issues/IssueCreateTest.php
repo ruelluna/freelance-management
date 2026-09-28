@@ -25,6 +25,8 @@ test('a member can create a local task with a description and assignees', functi
         'connected_source_id' => null,
     ]);
 
+    attachProjectMember($project, $member);
+
     $this->actingAs($member);
 
     Livewire::test('issues.task-form')
@@ -111,6 +113,9 @@ test('the task creator can edit the title and description', function () {
         'name' => 'Follow-up',
     ]);
 
+    attachProjectMember($project, $member);
+    attachProjectMember($otherProject, $member);
+
     $task = Issue::factory()->local()->create([
         'team_id' => $team->id,
         'project_id' => $project->id,
@@ -123,6 +128,10 @@ test('the task creator can edit the title and description', function () {
     $this->actingAs($member);
 
     Livewire::test('pages::issues.show', ['issue' => $task])
+        ->assertSee('Old title')
+        ->assertDontSee('Save task');
+
+    Livewire::test('pages::issues.edit', ['issue' => $task])
         ->set('title', 'New title')
         ->set('description', 'New description')
         ->set('projectId', $otherProject->id)
@@ -149,9 +158,8 @@ test('a member cannot edit a task they did not create and are not assigned to', 
 
     $this->actingAs($member);
 
-    Livewire::test('pages::issues.show', ['issue' => $task])
-        ->call('saveDetails')
-        ->assertForbidden();
+    $this->get(route('issues.show', $task))->assertForbidden();
+    $this->get(route('issues.edit', $task))->assertForbidden();
 });
 
 test('syncing a repo does not absorb local tasks or file remote issues into the linked project', function () {

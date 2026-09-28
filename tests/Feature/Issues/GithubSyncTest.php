@@ -15,23 +15,6 @@ use App\Services\Integrations\IssueProviderFactory;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 
-/**
- * @param  array<int, array<string, mixed>>  $issues
- * @param  array<string, mixed>  $overrides
- */
-function fakeGithubSyncRequests(array $issues = [], array $overrides = []): void
-{
-    $issues = $issues === [] ? [githubIssuePayload()] : $issues;
-
-    Http::fake(array_merge([
-        'https://api.github.com/repos/acme/api/issues/12' => Http::response([
-            'body' => '<p>Issue html body</p>',
-        ]),
-        'https://api.github.com/repos/acme/api/issues/12/comments*' => Http::response([]),
-        'https://api.github.com/repos/acme/api/issues?*' => Http::response($issues),
-    ], $overrides));
-}
-
 test('github sync upserts issues by external id, imports labels, and skips pull requests', function () {
     Http::preventStrayRequests();
 

@@ -6,9 +6,9 @@
 
         <title>{{ __('Welcome') }} - {{ config('app.name', 'Laravel') }}</title>
 
-        <link rel="icon" href="/favicon.ico" sizes="any">
-        <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-        <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+        <link rel="icon" href="/zt-logo.png" type="image/png" media="(prefers-color-scheme: light)">
+        <link rel="icon" href="/zt-logo-white.png" type="image/png" media="(prefers-color-scheme: dark)">
+        <link rel="apple-touch-icon" href="/zt-logo.png">
 
         @fonts
 
@@ -23,7 +23,7 @@
                 <nav class="flex items-center justify-end gap-4">
                     @auth
                         <a
-                            href="{{ route('dashboard') }}"
+                            href="{{ route(auth()->user()->homeRoute()) }}"
                             class="inline-block px-5 py-1.5 dark:text-[#EDEDEC] border-[#19140035] hover:border-[#1915014a] border text-[#1b1b18] dark:border-[#3E3E3A] dark:hover:border-[#62605b] rounded-sm text-sm leading-normal"
                         >
                             Dashboard

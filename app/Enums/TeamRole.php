@@ -7,6 +7,7 @@ enum TeamRole: string
     case Owner = 'owner';
     case Admin = 'admin';
     case Member = 'member';
+    case Client = 'client';
 
     /**
      * Get the display label for the role.
@@ -32,6 +33,8 @@ enum TeamRole: string
                 TeamPermission::ManageConnections,
                 TeamPermission::ManageLabels,
                 TeamPermission::ManageProjects,
+                TeamPermission::ManageClients,
+                TeamPermission::ManageUsers,
                 TeamPermission::ViewIssues,
                 TeamPermission::CreateIssues,
                 TeamPermission::UpdateIssues,
@@ -41,6 +44,13 @@ enum TeamRole: string
             self::Member => [
                 TeamPermission::ViewIssues,
                 TeamPermission::CreateIssues,
+                TeamPermission::CommentOnIssues,
+                TeamPermission::AssignIssues,
+            ],
+            self::Client => [
+                TeamPermission::ViewIssues,
+                TeamPermission::CreateIssues,
+                TeamPermission::UpdateIssues,
                 TeamPermission::CommentOnIssues,
                 TeamPermission::AssignIssues,
             ],
@@ -65,6 +75,7 @@ enum TeamRole: string
             self::Owner => 3,
             self::Admin => 2,
             self::Member => 1,
+            self::Client => 0,
         };
     }
 
@@ -84,9 +95,14 @@ enum TeamRole: string
     public static function assignable(): array
     {
         return collect(self::cases())
-            ->filter(fn (self $role) => $role !== self::Owner)
+            ->filter(fn (self $role) => ! in_array($role, [self::Owner, self::Client], true))
             ->map(fn (self $role) => ['value' => $role->value, 'label' => $role->label()])
             ->values()
             ->toArray();
+    }
+
+    public function isClient(): bool
+    {
+        return $this === self::Client;
     }
 }

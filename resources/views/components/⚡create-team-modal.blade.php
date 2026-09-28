@@ -1,16 +1,22 @@
 <?php
 
 use App\Actions\Teams\CreateTeam;
+use App\Models\Team;
 use App\Rules\TeamName;
-use Flux\Flux;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
 use Livewire\Component;
+use TallStackUi\Traits\Interactions;
 
 new class extends Component {
+    use Interactions;
+
     public string $teamName = '';
 
     public function createTeam(CreateTeam $createTeam): void
     {
+        Gate::authorize('create', Team::class);
+
         $validated = $this->validate([
             'teamName' => ['required', 'string', 'max:255', new TeamName],
         ]);
@@ -21,29 +27,28 @@ new class extends Component {
 
         $this->reset('teamName');
 
-        Flux::toast(variant: 'success', text: __('Team created.'));
+        $this->toast()->success(__('Team created.'))->send();
 
         $this->redirectRoute('teams.edit', ['team' => $team->slug], navigate: true);
     }
 }; ?>
 
-<flux:modal name="create-team-switcher" :show="$errors->isNotEmpty()" focusable class="max-w-lg">
-    <form wire:submit="createTeam" class="space-y-6">
-        <div>
-            <flux:heading size="lg">{{ __('Create a new team') }}</flux:heading>
-            <flux:subheading>{{ __('Give your team a name to get started.') }}</flux:subheading>
-        </div>
+<div>
+    <x-modal id="create-team-switcher" :title="__('Create a new team')" center size="lg">
+        <form id="create-team-switcher-form" wire:submit="createTeam" class="space-y-6">
+            <p class="text-sm text-gray-500 dark:text-dark-300">{{ __('Give your team a name to get started.') }}</p>
 
-        <flux:input wire:model="teamName" :label="__('Team name')" type="text" required autofocus data-test="switcher-create-team-name" />
+            <x-input wire:model="teamName" :label="__('Team name')" type="text" required autofocus data-test="switcher-create-team-name" />
+        </form>
 
-        <div class="flex justify-end space-x-2 rtl:space-x-reverse">
-            <flux:modal.close>
-                <flux:button variant="filled">{{ __('Cancel') }}</flux:button>
-            </flux:modal.close>
+        <x-slot:footer>
+            <x-button outline :text="__('Cancel')" x-on:click="$tsui.close.modal('create-team-switcher')" />
 
-            <flux:button variant="primary" type="submit" data-test="switcher-create-team-submit">
-                {{ __('Create team') }}
-            </flux:button>
-        </div>
-    </form>
-</flux:modal>
+            <x-button submit :text="__('Create team')" form="create-team-switcher-form" data-test="switcher-create-team-submit" />
+        </x-slot:footer>
+    </x-modal>
+
+    @if ($errors->isNotEmpty())
+        <div x-init="$tsui.open.modal('create-team-switcher')"></div>
+    @endif
+</div>

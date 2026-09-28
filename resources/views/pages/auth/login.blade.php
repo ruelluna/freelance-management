@@ -9,13 +9,11 @@
             <x-team-invitation-alert :invitation="$teamInvitation" :action="__('Log in')" />
         @endif
 
-        <x-passkey-verify />
-
         <form method="POST" action="{{ route('login.store') }}" class="flex flex-col gap-6">
             @csrf
 
             <!-- Email Address -->
-            <flux:input
+            <x-input
                 name="email"
                 :label="__('Email address')"
                 :value="old('email')"
@@ -28,42 +26,38 @@
 
             <!-- Password -->
             <div class="relative">
-                <flux:input
+                <x-password
                     name="password"
                     :label="__('Password')"
-                    type="password"
+                    :rules="[]"
                     required
                     autocomplete="current-password"
                     :placeholder="__('Password')"
-                    viewable
                 />
 
                 @if (Route::has('password.request'))
-                    <flux:link class="absolute top-0 text-sm end-0" :href="route('password.request')" wire:navigate>
-                        {{ __('Forgot your password?') }}
-                    </flux:link>
+                    <x-link class="absolute top-0 text-sm end-0" :href="route('password.request')" :text="__('Forgot your password?')" navigate />
                 @endif
             </div>
 
             <!-- Remember Me -->
-            <flux:checkbox name="remember" :label="__('Remember me')" :checked="old('remember')" />
+            <x-checkbox name="remember" :label="__('Remember me')" :checked="old('remember')" />
 
             <div class="flex items-center justify-end">
-                <flux:button variant="primary" type="submit" class="w-full" data-test="login-button">
-                    {{ __('Log in') }}
-                </flux:button>
+                <x-button submit class="w-full" data-test="login-button" :text="__('Log in')" />
             </div>
         </form>
 
-        <div class="space-x-1 text-sm text-center rtl:space-x-reverse text-zinc-600 dark:text-zinc-400">
-            <span>{{ __('Don\'t have an account?') }}</span>
-            <flux:link
-                :href="$teamInvitation ? route('register', ['invitation' => $teamInvitation['code']]) : route('register')"
-                data-test="register-link"
-                wire:navigate
-            >
-                {{ __('Sign up') }}
-            </flux:link>
-        </div>
+        @if (Route::has('register'))
+            <div class="space-x-1 text-sm text-center rtl:space-x-reverse text-zinc-600 dark:text-dark-300">
+                <span>{{ __('Don\'t have an account?') }}</span>
+                <x-link
+                    :href="$teamInvitation ? route('register', ['invitation' => $teamInvitation['code']]) : route('register')"
+                    data-test="register-link"
+                    :text="__('Sign up')"
+                    navigate
+                />
+            </div>
+        @endif
     </div>
 </x-layouts::auth>

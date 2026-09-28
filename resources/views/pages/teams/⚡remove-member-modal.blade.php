@@ -2,11 +2,13 @@
 
 use App\Models\Team;
 use App\Models\User;
-use Flux\Flux;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Component;
+use TallStackUi\Traits\Interactions;
 
 new class extends Component {
+    use Interactions;
+
     public Team $team;
 
     public ?int $memberId = null;
@@ -48,25 +50,22 @@ new class extends Component {
 
         $this->dispatch('close-modal', name: $this->modalName);
 
-        Flux::toast(variant: 'success', text: __('Member removed.'));
+        $this->toast()->success(__('Member removed.'))->send();
 
         $this->redirectRoute('teams.edit', ['team' => $this->team->slug], navigate: true);
     }
 }; ?>
 
-<flux:modal :name="$modalName" focusable class="max-w-lg">
-    <form wire:submit="removeMember" class="space-y-6">
-        <div>
-            <flux:heading size="lg">{{ __('Remove team member') }}</flux:heading>
-            <flux:subheading>
-                {{ __('Are you sure you want to remove :name from this team?', ['name' => $memberName]) }}
-            </flux:subheading>
-        </div>
-        <div class="flex justify-end space-x-2 rtl:space-x-reverse">
-            <flux:modal.close>
-                <flux:button variant="filled">{{ __('Cancel') }}</flux:button>
-            </flux:modal.close>
-            <flux:button variant="danger" type="submit" data-test="remove-member-confirm">{{ __('Remove member') }}</flux:button>
-        </div>
+<x-modal :id="$modalName" :title="__('Remove team member')" center size="lg">
+    <form id="remove-member-form-{{ $modalName }}" wire:submit="removeMember">
+        <p class="text-sm text-gray-500 dark:text-dark-300">
+            {{ __('Are you sure you want to remove :name from this team?', ['name' => $memberName]) }}
+        </p>
     </form>
-</flux:modal>
+    <x-slot:footer>
+        <div class="flex w-full justify-end gap-2">
+            <x-button outline x-on:click="$tsui.close.modal('{{ $modalName }}')" :text="__('Cancel')" />
+            <x-button submit form="remove-member-form-{{ $modalName }}" color="red" data-test="remove-member-confirm" :text="__('Remove member')" />
+        </div>
+    </x-slot:footer>
+</x-modal>

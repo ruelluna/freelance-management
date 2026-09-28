@@ -4,7 +4,6 @@ namespace App\Services\Integrations;
 
 use App\Contracts\IssueProvider;
 use App\Enums\Provider;
-use App\Exceptions\ProviderNotImplementedException;
 use App\Models\Connection;
 
 class IssueProviderFactory
@@ -13,8 +12,8 @@ class IssueProviderFactory
     {
         return match ($connection->provider) {
             Provider::Github => app(GithubIssueProvider::class),
-            Provider::Todoist => throw new ProviderNotImplementedException(Provider::Todoist),
-            Provider::Superhuman => throw new ProviderNotImplementedException(Provider::Superhuman),
+            Provider::Todoist => app(TodoistIssueProvider::class),
+            Provider::Superhuman => app(SuperhumanIssueProvider::class),
         };
     }
 }

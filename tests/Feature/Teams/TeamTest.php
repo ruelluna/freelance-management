@@ -5,6 +5,13 @@ use App\Models\Team;
 use App\Models\User;
 use Livewire\Livewire;
 
+test('a user team list is the membership relation', function () {
+    $owner = User::factory()->create(['email' => 'owner@example.com']);
+
+    expect($owner->teams)->toHaveCount(1)
+        ->and($owner->teams->first()->is($owner->currentTeam))->toBeTrue();
+});
+
 test('teams index page can be rendered', function () {
     $user = User::factory()->create();
 
@@ -29,6 +36,34 @@ test('teams can be created', function () {
         'name' => 'Test Team',
         'is_personal' => false,
     ]);
+});
+
+test('client users cannot create a team', function () {
+    ['team' => $team, 'client' => $client] = clientPortalFixtures();
+
+    $clientUser = User::factory()->create([
+        'email' => 'client@acme.test',
+    ]);
+
+    attachClientUser($team, $client, $clientUser);
+
+    $this->actingAs($clientUser);
+
+    Livewire::test('pages::teams.index')
+        ->set('name', 'Side project')
+        ->call('createTeam')
+        ->assertForbidden();
+
+    Livewire::test('create-team-modal')
+        ->set('teamName', 'Side project')
+        ->call('createTeam')
+        ->assertForbidden();
+
+    $this->get(route('teams.index'))
+        ->assertOk()
+        ->assertDontSee('data-test="teams-new-team-button"', false);
+
+    expect(Team::query()->where('name', 'Side project')->exists())->toBeFalse();
 });
 
 test('team slug uses next available suffix', function () {

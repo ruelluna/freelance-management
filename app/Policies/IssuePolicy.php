@@ -6,6 +6,7 @@ use App\Enums\TeamPermission;
 use App\Models\Issue;
 use App\Models\Team;
 use App\Models\User;
+use App\Services\TeamResourceAccess;
 
 class IssuePolicy
 {
@@ -17,7 +18,11 @@ class IssuePolicy
 
     public function view(User $user, Issue $issue): bool
     {
-        return $this->viewAny($user, $issue->team);
+        if (! $this->viewAny($user, $issue->team)) {
+            return false;
+        }
+
+        return TeamResourceAccess::for($user, $issue->team)->canAccessIssue($issue);
     }
 
     public function create(User $user, Team $team): bool
@@ -29,6 +34,10 @@ class IssuePolicy
     public function update(User $user, Issue $issue): bool
     {
         if (! $user->belongsToTeam($issue->team)) {
+            return false;
+        }
+
+        if (! TeamResourceAccess::for($user, $issue->team)->canAccessIssue($issue)) {
             return false;
         }
 
@@ -50,13 +59,27 @@ class IssuePolicy
 
     public function comment(User $user, Issue $issue): bool
     {
-        return $user->belongsToTeam($issue->team)
-            && $user->hasTeamPermission($issue->team, TeamPermission::CommentOnIssues);
+        if (! $user->belongsToTeam($issue->team)) {
+            return false;
+        }
+
+        if (! $user->hasTeamPermission($issue->team, TeamPermission::CommentOnIssues)) {
+            return false;
+        }
+
+        return TeamResourceAccess::for($user, $issue->team)->canAccessIssue($issue);
     }
 
     public function assign(User $user, Issue $issue): bool
     {
-        return $user->belongsToTeam($issue->team)
-            && $user->hasTeamPermission($issue->team, TeamPermission::AssignIssues);
+        if (! $user->belongsToTeam($issue->team)) {
+            return false;
+        }
+
+        if (! $user->hasTeamPermission($issue->team, TeamPermission::AssignIssues)) {
+            return false;
+        }
+
+        return TeamResourceAccess::for($user, $issue->team)->canAccessIssue($issue);
     }
 }

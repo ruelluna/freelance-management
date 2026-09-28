@@ -2,11 +2,10 @@
 
 use App\Actions\Projects\CreateProject;
 use App\Actions\Projects\DeleteProject;
-use App\Enums\Provider;
-use App\Models\ConnectedSource;
+use App\Models\Client;
 use App\Models\Project;
 use App\Models\Team;
-use Flux\Flux;
+use App\Services\TeamResourceAccess;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -14,13 +13,16 @@ use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Component;
+use TallStackUi\Traits\Interactions;
 
 new #[Layout('layouts::app')] #[Title('Projects')] class extends Component {
+    use Interactions;
+
     public string $name = '';
 
     public string $description = '';
 
-    public string $connectedSourceId = '';
+    public string $clientId = '';
 
     public function mount(): void
     {
@@ -34,24 +36,26 @@ new #[Layout('layouts::app')] #[Title('Projects')] class extends Component {
         $validated = $this->validate([
             'name' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:65535'],
-            'connectedSourceId' => ['nullable', 'uuid'],
+            'clientId' => ['nullable', 'uuid'],
         ]);
 
         $action->handle(
             $this->team(),
             $validated['name'],
             $validated['description'] ?? null,
-            $validated['connectedSourceId'] !== '' ? $validated['connectedSourceId'] : null,
+            $validated['clientId'] !== '' ? $validated['clientId'] : null,
         );
 
-        $this->reset('name', 'description', 'connectedSourceId');
+        $this->reset('name', 'description', 'clientId');
 
-        Flux::toast(variant: 'success', text: __('Project created.'));
+        $this->toast()->success(__('Project created.'))->send();
     }
 
     public function delete(string $projectId, DeleteProject $action): void
     {
-        $project = $this->team()->projects()->findOrFail($projectId);
+        $project = TeamResourceAccess::for(Auth::user(), $this->team())
+            ->scopeProjects($this->team()->projects())
+            ->findOrFail($projectId);
 
         Gate::authorize('delete', $project);
 
@@ -59,7 +63,7 @@ new #[Layout('layouts::app')] #[Title('Projects')] class extends Component {
 
         $this->dispatch('close-modal', name: 'delete-project-'.$projectId);
 
-        Flux::toast(variant: 'success', text: __('Project deleted. Its tasks stay in the inbox.'));
+        $this->toast()->success(__('Project deleted. Its tasks stay in the inbox.'))->send();
     }
 
     /**
@@ -68,23 +72,31 @@ new #[Layout('layouts::app')] #[Title('Projects')] class extends Component {
     #[Computed]
     public function projects(): Collection
     {
-        return $this->team()
-            ->projects()
-            ->with('connectedSource')
-            ->withCount(['issues' => fn ($query) => $query->where('status', 'open')])
+        $relations = ['client'];
+
+        if (! Auth::user()->isTeamClient($this->team())) {
+            $relations[] = 'connectedSource';
+        }
+
+        return TeamResourceAccess::for(Auth::user(), $this->team())
+            ->scopeProjects($this->team()->projects())
+            ->with($relations)
+            ->withCount(['issues' => function ($query) {
+                TeamResourceAccess::for(Auth::user(), $this->team())
+                    ->scopeIssues($query->where('status', 'open'));
+            }])
             ->orderBy('name')
             ->get();
     }
 
     /**
-     * @return Collection<int, ConnectedSource>
+     * @return Collection<int, Client>
      */
     #[Computed]
-    public function githubSources(): Collection
+    public function clients(): Collection
     {
-        return ConnectedSource::query()
-            ->whereBelongsTo($this->team())
-            ->whereHas('connection', fn ($query) => $query->where('provider', Provider::Github))
+        return TeamResourceAccess::for(Auth::user(), $this->team())
+            ->scopeClients($this->team()->clients()->where('status', 'active'))
             ->orderBy('name')
             ->get();
     }
@@ -103,68 +115,68 @@ new #[Layout('layouts::app')] #[Title('Projects')] class extends Component {
 
 <div class="flex flex-col gap-6">
     <div>
-        <flux:heading size="xl">{{ __('Projects') }}</flux:heading>
-        <flux:subheading>{{ __('Group tasks into a body of work. Optionally link a GitHub repository.') }}</flux:subheading>
+        <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">{{ __('Projects') }}</h1>
+        <p class="text-sm text-gray-500 dark:text-dark-300">{{ Auth::user()->isScopedTeamUser($this->team()) ? __('Projects shared with you.') : __('Group tasks into a body of work.') }}</p>
     </div>
 
     @if ($this->canManage)
-        <form wire:submit="create" class="space-y-4 rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">
-            <flux:input wire:model="name" :label="__('Name')" data-test="project-name" />
-            <flux:textarea wire:model="description" :label="__('Description')" rows="3" data-test="project-description" />
-            <flux:select wire:model="connectedSourceId" :label="__('GitHub repository')" data-test="project-repo">
-                <flux:select.option value="">{{ __('No repository') }}</flux:select.option>
-                @foreach ($this->githubSources as $source)
-                    <flux:select.option :value="$source->id">{{ $source->name }}</flux:select.option>
-                @endforeach
-            </flux:select>
-            <flux:button variant="primary" type="submit" data-test="create-project">{{ __('Add project') }}</flux:button>
-        </form>
+        <x-card>
+            <form wire:submit="create" class="space-y-4">
+                <x-input wire:model="name" :label="__('Name')" data-test="project-name" />
+                <x-editor markdown wire:model="description" :label="__('Description')" min-height="6rem" data-test="project-description" />
+                <x-select.native wire:model="clientId" :label="__('Client')" data-test="project-client">
+                    <option value="">{{ __('No client') }}</option>
+                    @foreach ($this->clients as $client)
+                        <option value="{{ $client->id }}">{{ $client->name }}</option>
+                    @endforeach
+                </x-select.native>
+                <x-button submit data-test="create-project" :text="__('Add project')" />
+            </form>
+        </x-card>
     @endif
 
     <div class="space-y-2">
         @forelse ($this->projects as $project)
-            <div class="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 p-4 dark:border-zinc-700" wire:key="project-{{ $project->id }}" data-test="project-row">
-                <div>
-                    <a href="{{ route('projects.show', $project) }}" class="font-medium hover:underline" wire:navigate data-test="project-link">
-                        {{ $project->name }}
-                    </a>
-                    <flux:text class="text-sm text-zinc-500">
-                        {{ $project->connectedSource->name ?? __('No repository') }}
-                        · {{ trans_choice(':count open task|:count open tasks', $project->issues_count) }}
-                    </flux:text>
-                </div>
+            <x-card wire:key="project-{{ $project->id }}">
+                <div class="flex items-center justify-between gap-4" data-test="project-row">
+                    <div>
+                        <a href="{{ route(auth()->user()->sectionRoute('projects.show'), $project) }}" class="font-medium hover:underline" wire:navigate data-test="project-link">
+                            {{ $project->name }}
+                        </a>
+                        <p class="text-sm text-gray-500 dark:text-dark-300">
+                            {{ $project->client->name ?? __('Internal') }}
+                            @unless (auth()->user()->isTeamClient(auth()->user()->currentTeam))
+                                · {{ $project->connectedSource->name ?? __('No repository') }}
+                            @endunless
+                            · {{ trans_choice(':count open task|:count open tasks', $project->issues_count) }}
+                        </p>
+                    </div>
 
-                <div class="flex items-center gap-2">
-                    <flux:badge :color="$project->status === \App\Enums\ProjectStatus::Open ? 'lime' : 'zinc'">
-                        {{ $project->status->label() }}
-                    </flux:badge>
+                    <div class="flex items-center gap-2">
+                        <x-badge light :color="$project->status === \App\Enums\ProjectStatus::Open ? 'green' : 'gray'" :text="$project->status->label()" />
 
-                    @if ($this->canManage)
-                        <flux:modal.trigger :name="'delete-project-'.$project->id">
-                            <flux:button variant="ghost" size="sm" data-test="delete-project">{{ __('Delete') }}</flux:button>
-                        </flux:modal.trigger>
-                    @endif
+                        @if ($this->canManage)
+                            <x-button outline sm x-on:click="$tsui.open.modal('delete-project-{{ $project->id }}')" data-test="delete-project" :text="__('Delete')" />
+                        @endif
+                    </div>
                 </div>
-            </div>
+            </x-card>
 
             @if ($this->canManage)
-                <flux:modal :name="'delete-project-'.$project->id" class="max-w-lg">
-                    <form wire:submit="delete('{{ $project->id }}')" class="space-y-6">
-                        <div>
-                            <flux:heading size="lg">{{ __('Delete :name?', ['name' => $project->name]) }}</flux:heading>
-                            <flux:subheading>{{ __('Tasks in this project stay in the inbox, without a project.') }}</flux:subheading>
-                        </div>
-                        <div class="flex justify-end gap-2">
-                            <flux:modal.close>
-                                <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
-                            </flux:modal.close>
-                            <flux:button variant="danger" type="submit" data-test="delete-project-confirm">{{ __('Delete') }}</flux:button>
-                        </div>
+                <x-modal :id="'delete-project-'.$project->id" :title="__('Delete :name?', ['name' => $project->name])" center size="lg">
+                    <form id="delete-project-form-{{ $project->id }}" wire:submit="delete('{{ $project->id }}')">
+                        <p class="text-sm text-gray-500 dark:text-dark-300">{{ __('Tasks in this project stay in the inbox, without a project.') }}</p>
                     </form>
-                </flux:modal>
+                    <x-slot:footer>
+                        <div class="flex w-full justify-end gap-2">
+                            <x-button outline x-on:click="$tsui.close.modal('delete-project-{{ $project->id }}')" :text="__('Cancel')" />
+                            <x-button submit form="delete-project-form-{{ $project->id }}" color="red" data-test="delete-project-confirm" :text="__('Delete')" />
+                        </div>
+                    </x-slot:footer>
+                </x-modal>
             @endif
         @empty
-            <flux:text>{{ __('No projects yet.') }}</flux:text>
+            <p class="text-sm text-gray-500 dark:text-dark-300">{{ Auth::user()->isScopedTeamUser($this->team()) ? __('No projects assigned to you yet.') : __('No projects yet.') }}</p>
         @endforelse
     </div>
 </div>

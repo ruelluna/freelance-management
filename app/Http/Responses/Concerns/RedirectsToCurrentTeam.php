@@ -8,13 +8,23 @@ use Illuminate\Support\Facades\URL;
 
 trait RedirectsToCurrentTeam
 {
-    protected function redirectPathForCurrentTeam(Request $request, string $redirect): string
+    protected function authenticatedHomePath(Request $request): string
     {
+        $user = $request->user();
         $team = $this->currentTeam($request);
 
-        URL::defaults(['current_team' => $team->slug]);
+        $slug = $user->portalSlug($team);
 
-        return "/{$team->slug}{$redirect}";
+        URL::defaults([
+            'current_team' => $slug,
+            'team' => $slug,
+        ]);
+
+        if ($user->isTeamClient($team)) {
+            return "/{$slug}/dashboard";
+        }
+
+        return '/dashboard';
     }
 
     protected function currentTeam(Request $request): Team

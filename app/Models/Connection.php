@@ -17,6 +17,8 @@ use Illuminate\Support\Carbon;
 /**
  * @property string $id
  * @property int $team_id
+ * @property int|null $user_id
+ * @property string|null $project_id
  * @property Provider $provider
  * @property string $name
  * @property string $token
@@ -26,10 +28,12 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read Team $team
+ * @property-read User|null $user
+ * @property-read Project|null $project
  * @property-read Collection<int, ConnectedSource> $sources
  * @property-read Collection<int, Issue> $issues
  */
-#[Fillable(['team_id', 'provider', 'name', 'token', 'webhook_secret', 'settings', 'last_synced_at'])]
+#[Fillable(['team_id', 'user_id', 'project_id', 'provider', 'name', 'token', 'webhook_secret', 'settings', 'last_synced_at'])]
 #[Hidden(['token', 'webhook_secret'])]
 class Connection extends Model
 {
@@ -42,6 +46,40 @@ class Connection extends Model
     public function team(): BelongsTo
     {
         return $this->belongsTo(Team::class);
+    }
+
+    /**
+     * @return BelongsTo<User, $this>
+     */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function isPersonalTodoist(): bool
+    {
+        return $this->provider === Provider::Todoist;
+    }
+
+    public function importsPersonalIssues(): bool
+    {
+        return $this->provider === Provider::Todoist;
+    }
+
+    public function skipsRemoteAssignment(): bool
+    {
+        return match ($this->provider) {
+            Provider::Todoist, Provider::Superhuman => true,
+            Provider::Github => false,
+        };
+    }
+
+    /**
+     * @return BelongsTo<Project, $this>
+     */
+    public function project(): BelongsTo
+    {
+        return $this->belongsTo(Project::class);
     }
 
     /**
@@ -67,6 +105,7 @@ class Connection extends Model
     {
         return [
             'provider' => Provider::class,
+            'user_id' => 'integer',
             'token' => 'encrypted',
             'webhook_secret' => 'encrypted',
             'settings' => 'array',

@@ -4,6 +4,7 @@ namespace App\Actions\Issues;
 
 use App\Data\Integrations\RemoteComment;
 use App\Data\Integrations\RemoteIssue;
+use App\Enums\CommentAudience;
 use App\Enums\CommentOrigin;
 use App\Enums\Provider;
 use App\Models\ConnectedSource;
@@ -37,26 +38,38 @@ class SyncIssueFromRemote
                 && $existing->body === $remote->body
                 && filled($existing->body_html);
 
+            $attributes = [
+                'team_id' => $source->team_id,
+                'connection_id' => $source->connection_id,
+                'number' => $remote->number,
+                'title' => $remote->title,
+                'body' => $remote->body,
+                'status' => $remote->status,
+                'external_url' => $remote->externalUrl,
+                'external_updated_at' => $remote->externalUpdatedAt,
+                'last_synced_at' => now(),
+            ];
+
+            if ($existing === null && $source->connection->user_id !== null && $source->connection->provider !== Provider::Github) {
+                $attributes['created_by'] = $source->connection->user_id;
+            }
+
+            if ($source->connection->provider === Provider::Superhuman && $source->connection->project_id !== null) {
+                $attributes['project_id'] = $source->connection->project_id;
+            }
+
             $issue = Issue::query()->updateOrCreate(
                 [
                     'connected_source_id' => $source->id,
                     'external_id' => $remote->externalId,
                 ],
-                [
-                    'team_id' => $source->team_id,
-                    'connection_id' => $source->connection_id,
-                    'number' => $remote->number,
-                    'title' => $remote->title,
-                    'body' => $remote->body,
-                    'status' => $remote->status,
-                    'external_url' => $remote->externalUrl,
-                    'external_updated_at' => $remote->externalUpdatedAt,
-                    'last_synced_at' => now(),
-                ],
+                $attributes,
             );
 
-            $this->syncLabels($issue, $remote->labels);
-            $this->syncAssignees($issue, $remote->assigneeLogins);
+            if (! $source->connection->skipsRemoteAssignment()) {
+                $this->syncLabels($issue, $remote->labels);
+                $this->syncAssignees($issue, $remote->assigneeLogins);
+            }
 
             if (! $skipIssueHtml) {
                 $this->syncIssueBodyHtml($source, $issue, $remote->body);
@@ -88,17 +101,23 @@ class SyncIssueFromRemote
                 ? CommentOrigin::Local
                 : CommentOrigin::Remote;
 
+            $attributes = [
+                'body' => $comment->body,
+                'author_name' => $comment->authorName,
+                'origin' => $origin,
+                'synced_at' => now(),
+            ];
+
+            if ($existing === null) {
+                $attributes['audience'] = CommentAudience::Internal;
+            }
+
             $issueComment = IssueComment::query()->updateOrCreate(
                 [
                     'issue_id' => $issue->id,
                     'external_id' => $comment->externalId,
                 ],
-                [
-                    'body' => $comment->body,
-                    'author_name' => $comment->authorName,
-                    'origin' => $origin,
-                    'synced_at' => now(),
-                ],
+                $attributes,
             );
 
             if (! $skipCommentHtml) {

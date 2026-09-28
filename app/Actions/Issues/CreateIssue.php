@@ -19,7 +19,10 @@ use Throwable;
 
 class CreateIssue
 {
-    public function __construct(private IssueProviderFactory $providers) {}
+    public function __construct(
+        private IssueProviderFactory $providers,
+        private ResolveTaskAssignees $assignees,
+    ) {}
 
     /**
      * @param  array<int, int|string>  $assigneeIds
@@ -41,20 +44,23 @@ class CreateIssue
             ]);
         }
 
-        $issue = DB::transaction(function () use ($team, $creator, $project, $title, $description, $assigneeIds, $labelNames): Issue {
+        $staffIds = $this->assignees->handle($team, $assigneeIds, $creator);
+
+        if ($creator->isTeamClient($team)) {
+            $labelNames = [];
+        }
+
+        $issue = DB::transaction(function () use ($team, $creator, $project, $title, $description, $staffIds, $labelNames): Issue {
             $issue = $team->issues()->create([
                 'project_id' => $project->id,
+                'client_id' => $project->client_id,
                 'created_by' => $creator->id,
                 'title' => $title,
                 'body' => filled($description) ? $description : null,
                 'status' => IssueStatus::Open,
             ]);
 
-            $memberIds = $team->members()
-                ->whereIn('users.id', $assigneeIds)
-                ->pluck('users.id');
-
-            $issue->assignees()->sync($memberIds);
+            $issue->assignees()->sync($staffIds);
 
             $labelIds = collect($labelNames)
                 ->filter(fn (string $name): bool => $name !== '')

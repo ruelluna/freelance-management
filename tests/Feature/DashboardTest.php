@@ -10,13 +10,10 @@ test('guests are redirected to the login page', function () {
     $response->assertRedirect(route('login'));
 });
 
-test('authenticated users can visit the dashboard', function () {
+test('staff are sent from the client dashboard to the workspace', function () {
     $user = User::factory()->create();
-    $team = $user->currentTeam;
 
-    $response = $this
-        ->actingAs($user)
-        ->get(route('dashboard'));
-
-    $response->assertOk();
+    $this->actingAs($user)
+        ->get(route('dashboard'))
+        ->assertRedirect(route('workspace'));
 });

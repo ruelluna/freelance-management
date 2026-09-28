@@ -40,7 +40,7 @@ new class extends Component {
         $user->switchTeam($team);
 
         if (! request()->header('Referer')) {
-            $this->redirectRoute('dashboard', ['current_team' => $team->slug], navigate: true);
+            $this->redirectRoute($user->homeRoute(), navigate: true);
 
             return;
         }
@@ -78,43 +78,45 @@ new class extends Component {
     }
 }; ?>
 
-<div>
-    <flux:dropdown position="bottom" align="start">
-        <flux:button variant="ghost" class="group w-full justify-start in-data-flux-sidebar-collapsed-desktop:justify-center" data-test="team-switcher-trigger">
-            <flux:icon name="users" class="hidden size-4 in-data-flux-sidebar-collapsed-desktop:block" />
-            <span class="truncate font-semibold in-data-flux-sidebar-collapsed-desktop:hidden">{{ $this->currentTeam()['name'] ?? __('Select team') }}</span>
-            <flux:icon
-                name="chevrons-up-down"
-                variant="micro"
-                class="ms-auto size-4 in-data-flux-sidebar-collapsed-desktop:hidden"
-            />
-        </flux:button>
+<div class="w-full [&>div]:w-full [&>div>div]:w-full">
+    <x-dropdown position="bottom-start" width="md" x-on:select="show = false">
+        <x-slot:action>
+            <button
+                type="button"
+                class="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-start hover:bg-gray-100 dark:hover:bg-dark-700"
+                data-test="team-switcher-trigger"
+                x-on:click="show = !show"
+            >
+                <x-icon name="users" class="size-4 shrink-0 text-gray-500" />
+                <span class="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900 dark:text-white">{{ $this->currentTeam()['name'] ?? __('Select team') }}</span>
+                <x-icon name="chevron-up-down" class="ms-auto size-4 shrink-0 text-gray-400" />
+            </button>
+        </x-slot:action>
 
-        <flux:menu class="min-w-56">
-            <flux:menu.heading>{{ __('Teams') }}</flux:menu.heading>
+        <x-slot:header>
+            <p class="px-2 text-xs font-medium text-gray-500 dark:text-dark-300">{{ __('Teams') }}</p>
+        </x-slot:header>
 
-            @foreach ($this->teams() as $team)
-                <flux:menu.item
-                    wire:click="switchTeam('{{ $team->slug }}')"
-                    class="cursor-pointer"
-                    data-test="team-switcher-item"
-                >
-                    <div class="flex w-full items-center justify-between">
-                        <span>{{ $team->name }}</span>
-                        @if ($team->isCurrent)
-                            <flux:icon name="check" class="size-4" />
-                        @endif
-                    </div>
-                </flux:menu.item>
-            @endforeach
+        @foreach ($this->teams() as $team)
+            <x-dropdown.items wire:click="switchTeam('{{ $team->slug }}')" data-test="team-switcher-item">
+                <span class="flex w-full items-center justify-between gap-3">
+                    <span class="truncate">{{ $team->name }}</span>
+                    @if ($team->isCurrent)
+                        <x-icon name="check" class="size-4 shrink-0" />
+                    @endif
+                </span>
+            </x-dropdown.items>
+        @endforeach
 
-            <flux:menu.separator />
-
-            <flux:modal.trigger name="create-team-switcher">
-                <flux:menu.item icon="plus" class="cursor-pointer" data-test="team-switcher-new-team">
-                    {{ __('New team') }}
-                </flux:menu.item>
-            </flux:modal.trigger>
-        </flux:menu>
-    </flux:dropdown>
+        @can('create', App\Models\Team::class)
+            <x-dropdown.items
+                icon="plus"
+                separator
+                data-test="team-switcher-new-team"
+                x-on:click="$tsui.open.modal('create-team-switcher'); $refs.dropdown.dispatchEvent(new CustomEvent('select'))"
+            >
+                {{ __('New team') }}
+            </x-dropdown.items>
+        @endcan
+    </x-dropdown>
 </div>

@@ -4,19 +4,23 @@ use App\Actions\Teams\CreateTeam;
 use App\Data\UserTeam;
 use App\Models\Team;
 use App\Rules\TeamName;
-use Flux\Flux;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
+use TallStackUi\Traits\Interactions;
 
 new #[Title('Teams')] class extends Component {
+    use Interactions;
+
     public string $name = '';
 
     public function createTeam(CreateTeam $createTeam): void
     {
+        Gate::authorize('create', Team::class);
+
         $validated = $this->validate([
             'name' => ['required', 'string', 'max:255', new TeamName],
         ]);
@@ -27,7 +31,7 @@ new #[Title('Teams')] class extends Component {
 
         $this->reset('name');
 
-        Flux::toast(variant: 'success', text: __('Team created.'));
+        $this->toast()->success(__('Team created.'))->send();
 
         $this->redirectRoute('teams.edit', ['team' => $team->slug], navigate: true);
     }
@@ -53,7 +57,7 @@ new #[Title('Teams')] class extends Component {
 
         $this->dispatch('close-modal', name: "leave-team-{$teamId}");
 
-        Flux::toast(variant: 'success', text: __('You left the team ":name"', ['name' => $team->name]));
+        $this->toast()->success(__('You left the team ":name"', ['name' => $team->name]))->send();
 
         $this->redirectRoute('teams.index', navigate: true);
     }
@@ -71,109 +75,95 @@ new #[Title('Teams')] class extends Component {
 <section class="w-full">
     @include('partials.settings-heading')
 
-    <flux:heading class="sr-only">{{ __('Teams') }}</flux:heading>
+    <h1 class="sr-only">{{ __('Teams') }}</h1>
 
     <x-pages::settings.layout :heading="__('Teams')" :subheading="__('Manage your teams and team memberships')">
-        <div class="flex items-center justify-end">
-            <flux:modal.trigger name="create-team">
-                <flux:button variant="primary" icon="plus" x-data="" x-on:click.prevent="$dispatch('open-modal', 'create-team')" data-test="teams-new-team-button">
-                    {{ __('New team') }}
-                </flux:button>
-            </flux:modal.trigger>
-        </div>
+        @can('create', App\Models\Team::class)
+            <div class="flex items-center justify-end">
+                <x-button icon="plus" x-on:click="$tsui.open.modal('create-team')" data-test="teams-new-team-button" :text="__('New team')" />
+            </div>
+        @endcan
 
         <div class="mt-6 space-y-3">
             @forelse ($this->teams as $team)
-                <div class="flex items-center justify-between gap-4 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900" data-test="team-row">
-                    <div class="flex items-center gap-4">
-                        <div>
-                            <div class="flex items-center gap-2">
-                                <span class="font-medium">{{ $team->name }}</span>
-                                @if ($team->isPersonal)
-                                    <flux:badge color="zinc">{{ __('Personal') }}</flux:badge>
-                                @endif
+                <x-card>
+                    <div class="flex items-center justify-between gap-4" data-test="team-row">
+                        <div class="flex items-center gap-4">
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <span class="font-medium">{{ $team->name }}</span>
+                                    @if ($team->isPersonal)
+                                        <x-badge color="gray" light :text="__('Personal')" />
+                                    @endif
+                                </div>
+                                <p class="text-sm text-gray-500 dark:text-dark-300">{{ $team->roleLabel }}</p>
                             </div>
-                            <flux:text class="text-sm text-zinc-500 dark:text-zinc-400">{{ $team->roleLabel }}</flux:text>
                         </div>
-                    </div>
 
-                    <div class="flex items-center gap-1">
-                        @if (! $team->isPersonal && $team->role !== 'owner')
-                            <flux:modal.trigger :name="'leave-team-'.$team->id">
-                                <flux:tooltip :content="__('Leave team')">
-                                    <flux:button
-                                        variant="ghost"
-                                        size="sm"
-                                        icon="arrow-right-start-on-rectangle"
-                                        x-data=""
-                                        x-on:click.prevent="$dispatch('open-modal', 'leave-team-{{ $team->id }}')"
-                                        data-test="team-leave-button"
-                                    />
-                                </flux:tooltip>
-                            </flux:modal.trigger>
-                        @endif
+                        <div class="flex items-center gap-1">
+                            @if (! $team->isPersonal && $team->role !== 'owner')
+                                <x-button
+                                    outline
+                                    sm
+                                    icon="arrow-right-start-on-rectangle"
+                                    :tooltip="__('Leave team')"
+                                    x-on:click="$tsui.open.modal('leave-team-{{ $team->id }}')"
+                                    data-test="team-leave-button"
+                                />
+                            @endif
 
-                        <flux:tooltip :content="$team->role === 'member' ? __('View team') : __('Edit team')">
-                            <flux:button
-                                variant="ghost"
-                                size="sm"
+                            <x-button
+                                outline
+                                sm
                                 :icon="$team->role === 'member' ? 'eye' : 'pencil'"
                                 :href="route('teams.edit', $team->slug)"
                                 wire:navigate
+                                :tooltip="$team->role === 'member' ? __('View team') : __('Edit team')"
                                 :data-test="$team->role === 'member' ? 'team-view-button' : 'team-edit-button'"
                             />
-                        </flux:tooltip>
+                        </div>
                     </div>
-                </div>
+                </x-card>
 
                 @if (! $team->isPersonal && $team->role !== 'owner')
-                    <flux:modal :name="'leave-team-'.$team->id" focusable class="max-w-lg">
-                        <form wire:submit="leaveTeam({{ $team->id }})" class="space-y-6">
-                            <div>
-                                <flux:heading size="lg">{{ __('Leave team') }}</flux:heading>
-                                <flux:subheading>
-                                    {{ __('Are you sure you want to leave :name?', ['name' => $team->name]) }}
-                                </flux:subheading>
-                            </div>
-
-                            <div class="flex justify-end space-x-2 rtl:space-x-reverse">
-                                <flux:modal.close>
-                                    <flux:button variant="filled">{{ __('Cancel') }}</flux:button>
-                                </flux:modal.close>
-
-                                <flux:button variant="danger" type="submit" data-test="leave-team-confirm">
-                                    {{ __('Leave team') }}
-                                </flux:button>
-                            </div>
+                    <x-modal :id="'leave-team-'.$team->id" :title="__('Leave team')" center size="lg">
+                        <form id="leave-team-form-{{ $team->id }}" wire:submit="leaveTeam({{ $team->id }})">
+                            <p class="text-sm text-gray-500 dark:text-dark-300">
+                                {{ __('Are you sure you want to leave :name?', ['name' => $team->name]) }}
+                            </p>
                         </form>
-                    </flux:modal>
+                        <x-slot:footer>
+                            <div class="flex w-full justify-end gap-2">
+                                <x-button outline x-on:click="$tsui.close.modal('leave-team-{{ $team->id }}')" :text="__('Cancel')" />
+                                <x-button submit form="leave-team-form-{{ $team->id }}" color="red" data-test="leave-team-confirm" :text="__('Leave team')" />
+                            </div>
+                        </x-slot:footer>
+                    </x-modal>
                 @endif
             @empty
-                <flux:text class="py-8 text-center text-zinc-500 dark:text-zinc-400">
+                <p class="py-8 text-center text-sm text-gray-500 dark:text-dark-300">
                     {{ __('You don\'t belong to any teams yet.') }}
-                </flux:text>
+                </p>
             @endforelse
         </div>
     </x-pages::settings.layout>
 
-    <flux:modal name="create-team" :show="$errors->isNotEmpty()" focusable class="max-w-lg">
-        <form wire:submit="createTeam" class="space-y-6">
-            <div>
-                <flux:heading size="lg">{{ __('Create a new team') }}</flux:heading>
-                <flux:subheading>{{ __('Give your team a name to get started.') }}</flux:subheading>
-            </div>
+    @can('create', App\Models\Team::class)
+    <x-modal id="create-team" :title="__('Create a new team')" center size="lg">
+        @if ($errors->isNotEmpty())
+            <div x-init="$tsui.open.modal('create-team')"></div>
+        @endif
 
-            <flux:input wire:model="name" :label="__('Team name')" type="text" required autofocus data-test="create-team-name" />
-
-            <div class="flex justify-end space-x-2 rtl:space-x-reverse">
-                <flux:modal.close>
-                    <flux:button variant="filled">{{ __('Cancel') }}</flux:button>
-                </flux:modal.close>
-
-                <flux:button variant="primary" type="submit" data-test="create-team-submit">
-                    {{ __('Create team') }}
-                </flux:button>
-            </div>
+        <form id="create-team-form" wire:submit="createTeam" class="space-y-6">
+            <p class="text-sm text-gray-500 dark:text-dark-300">{{ __('Give your team a name to get started.') }}</p>
+            <x-input wire:model="name" :label="__('Team name')" type="text" required autofocus data-test="create-team-name" />
         </form>
-    </flux:modal>
+        <x-slot:footer>
+            <div class="flex w-full justify-end gap-2">
+                <x-button outline x-on:click="$tsui.close.modal('create-team')" :text="__('Cancel')" />
+                <x-button submit form="create-team-form" data-test="create-team-submit" :text="__('Create team')" />
+            </div>
+        </x-slot:footer>
+    </x-modal>
+    @endcan
 </section>

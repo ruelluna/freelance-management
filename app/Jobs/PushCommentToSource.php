@@ -2,6 +2,8 @@
 
 namespace App\Jobs;
 
+use App\Enums\CommentAudience;
+use App\Enums\Provider;
 use App\Models\IssueComment;
 use App\Services\Integrations\IssueProviderFactory;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -28,7 +30,11 @@ class PushCommentToSource implements ShouldQueue
             ->with(['issue.connectedSource', 'issue.connection'])
             ->findOrFail($this->commentId);
 
-        if ($comment->external_id || $comment->issue->connection_id === null) {
+        if ($comment->audience === CommentAudience::Client || $comment->external_id || $comment->issue->connection_id === null) {
+            return;
+        }
+
+        if ($comment->issue->connection?->provider === Provider::Superhuman) {
             return;
         }
 
