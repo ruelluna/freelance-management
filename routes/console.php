@@ -9,3 +9,8 @@ Schedule::call(function () {
         ->where('expires_at', '<', now())
         ->delete();
 })->daily()->description('Delete expired team invitations');
+
+Schedule::command('issues:sync')
+    ->everyTenMinutes()
+    ->withoutOverlapping()
+    ->description('Sync connected issue sources');

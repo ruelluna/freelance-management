@@ -1,6 +1,12 @@
 <?php
 
+use App\Enums\TeamRole;
+use App\Models\ConnectedSource;
+use App\Models\Connection;
+use App\Models\Team;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 /*
@@ -44,7 +50,70 @@ expect()->extend('toBeOne', function () {
 |
 */
 
-function something()
+/**
+ * @return array{owner: User, team: Team, connection: Connection, source: ConnectedSource}
+ */
+function githubConnectionForOwner(?User $owner = null): array
 {
-    // ..
+    $owner ??= User::factory()->create(['email' => 'owner@example.com']);
+    $team = $owner->currentTeam;
+
+    $connection = Connection::factory()->create([
+        'team_id' => $team->id,
+        'name' => 'GitHub',
+    ]);
+
+    $source = ConnectedSource::factory()->create([
+        'connection_id' => $connection->id,
+        'team_id' => $team->id,
+        'external_id' => 'acme/api',
+        'name' => 'acme/api',
+    ]);
+
+    return compact('owner', 'team', 'connection', 'source');
+}
+
+function attachTeamMember(Team $team, User $member, TeamRole $role = TeamRole::Member): User
+{
+    $team->members()->attach($member, ['role' => $role->value]);
+    $member->switchTeam($team);
+
+    return $member;
+}
+
+function githubIssuePayload(array $overrides = []): array
+{
+    return array_replace_recursive([
+        'id' => 1001,
+        'number' => 12,
+        'title' => 'Fix client login',
+        'body' => 'Users cannot sign in.',
+        'state' => 'open',
+        'html_url' => 'https://github.com/acme/api/issues/12',
+        'updated_at' => '2026-08-25T12:00:00Z',
+        'labels' => [
+            ['name' => 'website', 'color' => '0e8a16'],
+        ],
+        'assignees' => [
+            ['login' => 'octocat'],
+        ],
+    ], $overrides);
+}
+
+function githubWebhook(Connection $connection, string $event, array $payload): TestResponse
+{
+    $content = json_encode($payload, JSON_THROW_ON_ERROR);
+    $signature = 'sha256='.hash_hmac('sha256', $content, $connection->webhook_secret);
+
+    return test()->call(
+        'POST',
+        route('webhooks.github', $connection),
+        server: [
+            'HTTP_X_HUB_SIGNATURE_256' => $signature,
+            'HTTP_X_GITHUB_EVENT' => $event,
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_ACCEPT' => 'application/json',
+        ],
+        content: $content,
+    );
 }

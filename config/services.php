@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'github' => [
+        'api_url' => env('GITHUB_API_URL', 'https://api.github.com'),
+        'api_version' => env('GITHUB_API_VERSION', '2022-11-28'),
+    ],
+
 ];
