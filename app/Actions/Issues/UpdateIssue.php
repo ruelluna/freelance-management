@@ -2,21 +2,36 @@
 
 namespace App\Actions\Issues;
 
+use App\Actions\EditorImages\AttachEditorImages;
 use App\Data\Integrations\IssueUpdate as RemoteIssueUpdate;
 use App\Enums\IssueStatus;
 use App\Enums\Provider;
 use App\Models\Issue;
 use App\Models\Label;
+use App\Models\User;
 use App\Models\UserIdentity;
 use App\Services\Integrations\IssueProviderFactory;
 use Illuminate\Support\Facades\Log;
 
 class UpdateIssue
 {
-    public function __construct(private IssueProviderFactory $providers) {}
+    public function __construct(
+        private IssueProviderFactory $providers,
+        private AttachEditorImages $images,
+    ) {}
 
-    public function handle(Issue $issue, RemoteIssueUpdate $update): Issue
+    public function handle(Issue $issue, RemoteIssueUpdate $update, ?User $actor = null): Issue
     {
+        if ($update->body !== null && $actor !== null) {
+            $update = new RemoteIssueUpdate(
+                status: $update->status,
+                labelNames: $update->labelNames,
+                assigneeLogins: $update->assigneeLogins,
+                title: $update->title,
+                body: $this->images->handle($actor, $issue, $update->body),
+            );
+        }
+
         $attributes = [];
 
         if ($update->status !== null) {

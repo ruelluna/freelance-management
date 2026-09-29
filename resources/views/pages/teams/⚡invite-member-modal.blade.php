@@ -6,8 +6,10 @@ use App\Notifications\Teams\TeamInvitation as TeamInvitationNotification;
 use App\Rules\UniqueTeamInvitation;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
 use TallStackUi\Traits\Interactions;
@@ -42,8 +44,22 @@ new class extends Component {
             'expires_at' => now()->addDays(3),
         ]);
 
-        Notification::route('mail', $invitation->email)
-            ->notify(new TeamInvitationNotification($invitation));
+        try {
+            Notification::route('mail', $invitation->email)
+                ->notify(new TeamInvitationNotification($invitation));
+        } catch (\Throwable $exception) {
+            $invitation->delete();
+
+            Log::error('Team invitation email failed', [
+                'team_id' => $this->team->id,
+                'email' => $validated['inviteEmail'],
+                'message' => $exception->getMessage(),
+            ]);
+
+            throw ValidationException::withMessages([
+                'inviteEmail' => [__('We could not send the invitation email. Please try again.')],
+            ]);
+        }
 
         $this->reset('inviteEmail', 'inviteRole');
         $this->dispatch('close-modal', name: 'invite-member');

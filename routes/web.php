@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\EditorImageController;
 use App\Http\Controllers\IssueMediaController;
 use App\Http\Controllers\Webhooks\GithubWebhookController;
 use App\Http\Middleware\EnsureStaffWorkspace;
@@ -56,6 +57,7 @@ Route::prefix('{current_team}')
         Route::livewire('issues/{issue}', 'pages::issues.show')->name('client.issues.show');
         Route::livewire('users', 'pages::users.index')->name('client.users.index');
         Route::get('issues/{issue}/media/{asset}', IssueMediaController::class)->name('issues.media');
+        Route::get('editor-images/{editorImage}', EditorImageController::class)->name('editor-images.show');
         Route::livewire('labels', 'pages::labels.index')->name('client.labels.index');
     });
 

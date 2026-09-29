@@ -178,7 +178,7 @@ new class extends Component {
             <form id="new-task-form" wire:submit="create" class="space-y-4">
                 <x-input wire:model="title" :label="__('Title')" data-test="task-title" />
 
-                <x-editor markdown wire:model="description" :label="__('Description')" min-height="8rem" data-test="task-description" />
+                <livewire:markdown-editor wire:model.live="description" :label="__('Description')" min-height="8rem" test-id="task-description" />
 
                 @unless ($lockProject)
                     <x-select.native wire:model.live="projectId" :label="__('Project')" data-test="task-project">

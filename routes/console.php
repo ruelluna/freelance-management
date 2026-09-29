@@ -14,3 +14,7 @@ Schedule::command('issues:sync')
     ->everyTenMinutes()
     ->withoutOverlapping()
     ->description('Sync connected issue sources');
+
+Schedule::command('editor-images:prune')
+    ->daily()
+    ->description('Delete unattached editor images older than a day');

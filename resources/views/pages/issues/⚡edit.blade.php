@@ -74,7 +74,7 @@ new #[Layout('layouts::app')] #[Title('Edit task')] class extends Component {
         $action->handle($this->issue, new IssueUpdate(
             title: $validated['title'],
             body: $validated['description'] ?? '',
-        ));
+        ), Auth::user());
 
         $this->refreshIssue();
         $this->fillFromIssue();
@@ -266,7 +266,7 @@ new #[Layout('layouts::app')] #[Title('Edit task')] class extends Component {
         <x-card>
             <form wire:submit="saveDetails" class="space-y-4">
                 <x-input wire:model="title" :label="__('Title')" data-test="edit-task-title" />
-                <x-editor markdown wire:model="description" :label="__('Description')" min-height="12rem" data-test="edit-task-description" />
+                <livewire:markdown-editor wire:model.live="description" :label="__('Description')" min-height="12rem" test-id="edit-task-description" />
                 <x-select.native wire:model="projectId" :label="__('Project')" data-test="edit-task-project">
                     @unless ($this->isScopedUser)
                         <option value="">{{ __('No project') }}</option>

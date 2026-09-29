@@ -16,7 +16,7 @@ class RedirectStaffToWorkspace
         $user = $request->user();
         $teamSlug = $request->route('current_team');
 
-        if (! is_string($teamSlug) || $user === null || $request->routeIs('issues.media', 'dashboard')) {
+        if (! is_string($teamSlug) || $user === null || $request->routeIs('issues.media', 'editor-images.show', 'dashboard')) {
             return $next($request);
         }
 

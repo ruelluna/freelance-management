@@ -2,6 +2,7 @@
 
 namespace App\Actions\Issues;
 
+use App\Actions\EditorImages\AttachEditorImages;
 use App\Enums\CommentAudience;
 use App\Enums\CommentOrigin;
 use App\Jobs\PushCommentToSource;
@@ -12,6 +13,8 @@ use Illuminate\Validation\ValidationException;
 
 class AddIssueComment
 {
+    public function __construct(private AttachEditorImages $images) {}
+
     public function handle(Issue $issue, User $user, string $body, CommentAudience $audience, ?IssueComment $parent = null): IssueComment
     {
         $parent = $this->replyParent($issue, $parent);
@@ -25,6 +28,14 @@ class AddIssueComment
             'origin' => CommentOrigin::Local,
             'audience' => $audience,
         ]);
+
+        $attached = $this->images->handle($user, $comment, $body);
+
+        if ($attached !== $body) {
+            $comment->update([
+                'body' => $attached ?? '',
+            ]);
+        }
 
         if ($audience === CommentAudience::Internal && $issue->connection_id !== null) {
             PushCommentToSource::dispatch($comment->id);

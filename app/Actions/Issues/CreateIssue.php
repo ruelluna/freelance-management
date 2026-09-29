@@ -2,6 +2,7 @@
 
 namespace App\Actions\Issues;
 
+use App\Actions\EditorImages\AttachEditorImages;
 use App\Data\CreatedIssue;
 use App\Enums\IssueStatus;
 use App\Enums\Provider;
@@ -22,6 +23,7 @@ class CreateIssue
     public function __construct(
         private IssueProviderFactory $providers,
         private ResolveTaskAssignees $assignees,
+        private AttachEditorImages $images,
     ) {}
 
     /**
@@ -59,6 +61,13 @@ class CreateIssue
                 'body' => filled($description) ? $description : null,
                 'status' => IssueStatus::Open,
             ]);
+
+            $description = $this->images->handle($creator, $issue, $description);
+            $body = filled($description) ? $description : null;
+
+            if ($issue->body !== $body) {
+                $issue->update(['body' => $body]);
+            }
 
             $issue->assignees()->sync($staffIds);
 

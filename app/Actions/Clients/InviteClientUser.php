@@ -47,8 +47,23 @@ class InviteClientUser
             'expires_at' => now()->addDays(3),
         ]);
 
-        Notification::route('mail', $invitation->email)
-            ->notify(new TeamInvitationNotification($invitation));
+        try {
+            Notification::route('mail', $invitation->email)
+                ->notify(new TeamInvitationNotification($invitation));
+        } catch (\Throwable $exception) {
+            $invitation->delete();
+
+            Log::error('Client invitation email failed', [
+                'client_id' => $client->id,
+                'team_id' => $client->team_id,
+                'email' => $email,
+                'message' => $exception->getMessage(),
+            ]);
+
+            throw ValidationException::withMessages([
+                'inviteEmail' => [__('We could not send the invitation email. Please try again.')],
+            ]);
+        }
 
         Log::info('Client user invited', [
             'client_id' => $client->id,

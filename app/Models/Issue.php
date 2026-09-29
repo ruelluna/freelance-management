@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Concerns\HasEditorImages;
 use App\Enums\IssueStatus;
 use App\Enums\Provider;
 use Database\Factories\IssueFactory;
@@ -45,6 +46,7 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, IssueComment> $comments
  * @property-read Collection<int, Label> $labels
  * @property-read Collection<int, User> $assignees
+ * @property-read Collection<int, EditorImage> $editorImages
  */
 #[Fillable([
     'team_id',
@@ -66,7 +68,7 @@ use Illuminate\Support\Carbon;
 class Issue extends Model
 {
     /** @use HasFactory<IssueFactory> */
-    use HasFactory, HasUuids;
+    use HasEditorImages, HasFactory, HasUuids;
 
     /**
      * @var array<string, mixed>

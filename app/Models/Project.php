@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Concerns\HasEditorImages;
 use App\Enums\ProjectStatus;
 use Database\Factories\ProjectFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -30,12 +31,13 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, Connection> $connections
  * @property-read Collection<int, Issue> $issues
  * @property-read Collection<int, User> $members
+ * @property-read Collection<int, EditorImage> $editorImages
  */
 #[Fillable(['team_id', 'client_id', 'connected_source_id', 'name', 'description', 'status'])]
 class Project extends Model
 {
     /** @use HasFactory<ProjectFactory> */
-    use HasFactory, HasUuids;
+    use HasEditorImages, HasFactory, HasUuids;
 
     /**
      * @var array<string, mixed>

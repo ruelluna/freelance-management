@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Concerns\HasEditorImages;
 use App\Enums\CommentAudience;
 use App\Enums\CommentOrigin;
 use Database\Factories\IssueCommentFactory;
@@ -36,12 +37,13 @@ use Illuminate\Support\Carbon;
  * @property-read IssueComment|null $parent
  * @property-read Collection<int, IssueComment> $replies
  * @property-read User|null $user
+ * @property-read Collection<int, EditorImage> $editorImages
  */
 #[Fillable(['issue_id', 'parent_id', 'user_id', 'external_id', 'body', 'body_html', 'author_name', 'origin', 'audience', 'shared_at', 'synced_at'])]
 class IssueComment extends Model
 {
     /** @use HasFactory<IssueCommentFactory> */
-    use HasFactory, HasUuids;
+    use HasEditorImages, HasFactory, HasUuids;
 
     /**
      * @return BelongsTo<Issue, $this>

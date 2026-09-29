@@ -2,20 +2,29 @@
 
 namespace App\Actions\Projects;
 
+use App\Actions\EditorImages\AttachEditorImages;
 use App\Enums\ProjectStatus;
 use App\Models\Project;
+use App\Models\User;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 class UpdateProject
 {
+    public function __construct(private AttachEditorImages $images) {}
+
     public function handle(
         Project $project,
         string $name,
         ?string $description,
         ProjectStatus $status,
         ?string $clientId = null,
+        ?User $actor = null,
     ): Project {
+        if ($actor !== null) {
+            $description = $this->images->handle($actor, $project, $description);
+        }
+
         $project->update([
             'name' => $name,
             'description' => filled($description) ? $description : null,
