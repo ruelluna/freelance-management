@@ -69,7 +69,7 @@ new class extends Component {
     >
         <x-editor
             markdown
-            wire:model.live="content"
+            wire:model="content"
             upload-property="image"
             upload-method="storeImage"
             :upload-mimes="\App\Models\EditorImage::MIMES"

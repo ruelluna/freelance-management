@@ -172,7 +172,7 @@ new #[Layout('layouts::app')] #[Title('Edit project')] class extends Component {
     <x-card>
         <form wire:submit="save" class="space-y-4">
             <x-input wire:model="name" :label="__('Name')" data-test="edit-project-name" />
-            <livewire:markdown-editor wire:model.live="description" :label="__('Description')" min-height="6rem" test-id="edit-project-description" />
+            <livewire:markdown-editor wire:model="description" :label="__('Description')" min-height="6rem" test-id="edit-project-description" />
             <x-select.native wire:model="clientId" :label="__('Client')" data-test="edit-project-client">
                 <option value="">{{ __('No client') }}</option>
                 @foreach ($this->clients as $client)

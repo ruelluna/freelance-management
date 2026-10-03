@@ -440,7 +440,7 @@ new #[Layout('layouts::app')] #[Title('Task')] class extends Component {
                         <x-button outline sm wire:click="cancelReply" data-test="cancel-reply" :text="__('Cancel')" />
                     </div>
                 @endif
-                <livewire:markdown-editor wire:model.live="body" :label="$this->replyTarget ? __('Reply') : __('Comment')" min-height="8rem" test-id="issue-comment-body" />
+                <livewire:markdown-editor wire:model="body" :label="$this->replyTarget ? __('Reply') : __('Comment')" min-height="8rem" test-id="issue-comment-body" />
                 @if ($this->isClient)
                     <x-button wire:click="addComment" data-test="issue-comment-submit" :text="__('Comment')" />
                 @elseif ($this->canReplyToClient && $this->canLeaveTeamNote)
